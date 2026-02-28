@@ -94,6 +94,24 @@ CREATE TABLE relations (
 
 > **Note:** Vector dimensions (384) correspond to `bge-small-en-v1.5`. The actual dimension is determined by the Embedding Sidecar's model. Indexes (e.g., IVFFlat or HNSW on vector columns) are an implementation concern. Edge `properties` remain JSONB since they are never queried directly — they are carried as payload.
 
+### 2.3. Embedding Sidecar API
+
+The sidecar exposes a single HTTP endpoint:
+
+```
+POST /embed
+Content-Type: application/json
+
+Request:  { "text": "hello world" }
+Response: { "vector": [0.012, -0.034, ...] }   // 384 dimensions
+
+// Batch variant:
+Request:  { "texts": ["hello", "world"] }
+Response: { "vectors": [[...], [...]] }
+```
+
+> The sidecar is stateless and independently deployable. The Databank calls it during node ingestion (embed content + labels), edge creation (embed new relation types), and query-time semantic matching.
+
 ## 3. Core Features & Requirements
 
 ### 3.1. Data Ingestion & Indexing
@@ -254,6 +272,39 @@ type PageInfo {
   hasPreviousPage: Boolean!
   startCursor: String
   endCursor: String
+}
+
+# --- Edge Type ---
+type Edge {
+  id: ID!
+  sourceId: ID!
+  targetId: ID!
+  relationType: String!
+  properties: JSON!
+  validFrom: DateTime
+  validTo: DateTime
+  createdAt: DateTime!
+}
+
+# --- Relation Registry Type ---
+type Relation {
+  name: String!
+  usageCount: Int!
+  createdAt: DateTime!
+}
+
+# --- Maintenance Types ---
+type SimilarPair {
+  nodeA: Node!
+  nodeB: Node!
+  similarity: Float!
+}
+
+type SchemaInfo {
+  labels: [String!]!            # all distinct labels in use
+  relationTypes: [String!]!     # all distinct relation types in use
+  nodeCount: Int!
+  edgeCount: Int!
 }
 ```
 
