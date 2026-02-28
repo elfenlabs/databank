@@ -213,7 +213,7 @@ Get connections of a known node with semantic relation matching and optional tar
   ```
 * **Relation matching:** When `match: "semantic"`, uses the waterfall search strategy — embeds the value, searches the relation registry, cascades through matches in descending similarity order.
 * **Target filtering:** When present, filters target nodes by semantic similarity on either their content or label vectors. The agent chooses which vector space to search against.
-* **Temporal filtering:** When `mode: "as_of"`, returns edges valid at the given point in time (for state relationships). When `mode: "during"`, returns edges that occurred within the time range (for event relationships). Omitting the temporal field returns all edges regardless of time.
+* **Temporal filtering:** Three modes — `at` (edge valid at a point in time), `within` (edge fits entirely inside a range), `overlaps` (edge active at any point during a range). Omitting the temporal field returns all edges regardless of time.
 * **Returns:** List of connections with `node_id`, `content`, `labels`, `relation_type`, `relation_score`, `valid_from`, `valid_to`.
 
 ### 4.2. Data Layer (Ingestion)
