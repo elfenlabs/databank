@@ -1,0 +1,15 @@
+# === Local dev ===
+.local/
+
+# === Node ===
+node_modules/
+dist/
+
+# === Environment ===
+.env
+.env.*
+!.env.example
+
+# === OS ===
+.DS_Store
+Thumbs.db
