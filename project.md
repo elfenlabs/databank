@@ -12,7 +12,7 @@ The ecosystem consists of four components:
 
 | Actor | Description | Responsibility |
 | --- | --- | --- |
-| **The Databank (System)** | TypeScript app serving a REST API, backed by PostgreSQL + pgvector and an Embedding Sidecar. | Executes hybrid searches, stores nodes/edges, manages a relation registry, and serves structured context. |
+| **The Databank (System)** | TypeScript app serving a GraphQL API, backed by PostgreSQL + pgvector and an Embedding Sidecar. | Executes hybrid searches, stores nodes/edges, manages a relation registry, and serves structured context. |
 | **Embedding Sidecar (Internal)** | A lightweight microservice (e.g., Python + `sentence-transformers`) that exposes an HTTP embedding endpoint. | Converts text into vector embeddings on demand. Called by the Databank during ingestion and query-time relation matching. |
 | **Consumer App (External)** | The user-facing application (e.g., TypeScript/Next.js) powered by a heavy LLM (e.g., 120B parameter model). | Receives user queries, **decomposes them into structured Databank queries** via round-trip exploration, fetches context, and generates final answers. |
 | **Librarian Agent (External)** | A lightweight background worker (e.g., Python script running a fast 7B local LLM). | Queries the Databank for unconnected nodes, infers relationships, writes edges, and **compresses/normalizes the relation registry**. |
@@ -28,10 +28,10 @@ The Databank is backed by a single **PostgreSQL** instance with the **pgvector**
  Consumer/       │  ┌─────────────────────────────────┐ │
  Librarian ────► │  │  PostgreSQL + pgvector           │ │
                  │  │                                 │ │
-                 │  │  • nodes      (content, labels)  │ │
-                 │  │  • edges      (relations, time)  │ │
-                 │  │  • vectors    (pgvector ANN)     │ │
-                 │  │  • relations  (registry)         │ │
+                 │  │  • nodes       (content, props)  │ │
+                 │  │  • node_labels  (label vectors)   │ │
+                 │  │  • edges       (relations, time)  │ │
+                 │  │  • relations   (registry)         │ │
                  │  └─────────────────────────────────┘ │
                  │                                      │
                  │  ┌─────────────────────────────────┐ │
@@ -48,19 +48,35 @@ The Databank is backed by a single **PostgreSQL** instance with the **pgvector**
 CREATE TABLE nodes (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   content         TEXT NOT NULL,
-  labels          TEXT[] NOT NULL DEFAULT '{}',
-  metadata        JSONB NOT NULL DEFAULT '{}',
   content_vector  vector(384),          -- pgvector: content embedding
-  label_vectors   vector(384)[],        -- pgvector: per-label embeddings
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Node labels: one row per label, each with its own embedding for semantic label search
+CREATE TABLE node_labels (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  node_id         UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  label           TEXT NOT NULL,
+  label_vector    vector(384),          -- pgvector: label embedding
+  UNIQUE(node_id, label)
+);
+
+-- Node properties: normalized key-value pairs for exact match queries
+CREATE TABLE node_properties (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  node_id         UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  key             TEXT NOT NULL,
+  value           TEXT NOT NULL,
+  UNIQUE(node_id, key)
+);
+CREATE INDEX idx_node_properties_lookup ON node_properties(key, value);
 
 -- Edges: directed relationships between nodes
 CREATE TABLE edges (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   source_id       UUID NOT NULL REFERENCES nodes(id),
   target_id       UUID NOT NULL REFERENCES nodes(id),
-  relation_type   TEXT NOT NULL,
+  relation_type   TEXT NOT NULL REFERENCES relations(name),
   properties      JSONB NOT NULL DEFAULT '{}',
   valid_from      TIMESTAMPTZ,          -- NULL = fact (always true)
   valid_to        TIMESTAMPTZ,          -- NULL = ongoing state
@@ -76,7 +92,7 @@ CREATE TABLE relations (
 );
 ```
 
-> **Note:** Vector dimensions (384) correspond to `bge-small-en-v1.5`. The actual dimension is determined by the Embedding Sidecar's model. Indexes (e.g., IVFFlat or HNSW on vector columns) are an implementation concern.
+> **Note:** Vector dimensions (384) correspond to `bge-small-en-v1.5`. The actual dimension is determined by the Embedding Sidecar's model. Indexes (e.g., IVFFlat or HNSW on vector columns) are an implementation concern. Edge `properties` remain JSONB since they are never queried directly — they are carried as payload.
 
 ## 3. Core Features & Requirements
 
@@ -152,130 +168,232 @@ Step 3 — Return results with provenance:
 
 ## 4. API Specification
 
-The Databank exposes a **pure REST API**. All endpoints communicate via JSON.
+The Databank exposes a **flat GraphQL API** via a single `/graphql` endpoint. No nested traversals are supported — multi-hop exploration is handled by the agent via round-trip queries.
 
-**Design Philosophy:** The consumer is an intelligent agent capable of multi-step reasoning. Instead of providing a complex query language with nested traversals, the API embraces **round-trip exploration** — each endpoint does one thing well, and the agent chains calls together with reasoning between steps. This keeps the Databank "dumb" and pushes all intelligence to the caller.
+**Design Philosophy:** The consumer is an intelligent agent capable of multi-step reasoning. Instead of providing nested query capabilities, the API provides **flat queries and mutations** that the agent chains together with reasoning between steps. GraphQL is used for its type safety, schema introspection, **alias-based batching**, and **Relay cursor pagination** — not for deep traversals.
 
 ```
 ┌──────────────────────────────────────────┐
 │          Databank (TypeScript)            │
 │                                          │
-│   /api/v1/*  ← REST endpoints            │
-│     • Query: node search, connections    │
-│     • CRUD: nodes, edges                 │
-│     • Relation registry management       │
-│     • Maintenance / Librarian queue      │
+│   /graphql  ← single endpoint            │
+│     • Queries: searchNodes, connections  │
+│     • Mutations: CRUD for nodes/edges    │
+│     • Mutations: relation management     │
+│     • Queries: maintenance / diagnostics │
 └──────────────────────────────────────────┘
 ```
 
-### 4.1. Query Layer (Round-Trip Exploration)
+### 4.1. GraphQL Schema (Core Types)
 
-The agent explores the knowledge graph one step at a time, reasoning between each call.
+```graphql
+# --- Enums ---
+enum MatchType { EXACT SEMANTIC }
+enum Direction { OUTGOING INCOMING BOTH }
+enum TemporalMode { AT WITHIN OVERLAPS }
+enum TargetField { CONTENT LABEL }
+
+# --- Inputs ---
+input RelationFilter {
+  match: MatchType!
+  value: String!
+  threshold: Float            # required for SEMANTIC match
+}
+
+input TargetFilter {
+  on: TargetField!            # search against content or label vectors
+  value: String!
+  threshold: Float!
+}
+
+input TemporalFilter {
+  mode: TemporalMode!
+  at: DateTime                # required for AT mode
+  from: DateTime              # required for WITHIN / OVERLAPS modes
+  to: DateTime                # required for WITHIN / OVERLAPS modes
+}
+
+# --- Node Types ---
+type Node {
+  id: ID!
+  content: String!
+  labels: [String!]!          # resolved from node_labels table
+  properties: JSON!           # resolved from node_properties table as { key: value }
+  createdAt: DateTime!
+}
+
+# --- Connection Types (Relay-style pagination) ---
+type ConnectionEdge {
+  node: Node!
+  relationType: String!
+  relationScore: Float!
+  validFrom: DateTime
+  validTo: DateTime
+  cursor: String!
+}
+
+type ConnectionResult {
+  edges: [ConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type NodeEdge {
+  node: Node!
+  cursor: String!
+}
+
+type NodeResult {
+  edges: [NodeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+```
+
+### 4.2. Queries (Round-Trip Exploration)
+
+The agent explores the knowledge graph one step at a time, reasoning between each call. GraphQL **aliases** allow multiple independent queries in a single request.
+
+```graphql
+type Query {
+  # Discover nodes by property match or semantic similarity
+  searchNodes(
+    match: MatchType!
+    property: String          # required for EXACT match (e.g., "name")
+    value: String!
+    threshold: Float          # required for SEMANTIC match (0.0–1.0)
+    labels: [String!]         # optional label filter
+    first: Int = 10
+    after: String
+  ): NodeResult!
+
+  # Get connections of a known node
+  connections(
+    nodeId: ID!
+    relation: RelationFilter  # optional — omit to get all connections
+    target: TargetFilter      # optional target filter
+    direction: Direction = OUTGOING
+    temporal: TemporalFilter   # optional temporal filter
+    first: Int = 10
+    after: String
+  ): ConnectionResult!
+
+  # --- Maintenance / Librarian Queries ---
+  relations: [Relation!]!                   # all relation types with usage counts
+  orphans(first: Int = 20, after: String): NodeResult!
+  similarPairs(threshold: Float!): [SimilarPair!]!
+  schema: SchemaInfo!
+}
+```
 
 **Example flow** — *"What libraries did Alice use in projects she created?"*:
 
-```
-Round 1: POST /api/v1/search/nodes
-  { "match": "exact", "property": "name", "value": "Alice" }
-  → [{ "node_id": "alice_123", "labels": ["Person"], ... }]
-
-Round 2: POST /api/v1/connections
-  { "node_id": "alice_123",
-    "relation": { "match": "semantic", "value": "create", "threshold": 0.8 },
-    "target": { "match": "semantic", "on": "label", "value": "project", "threshold": 0.7 },
-    "direction": "outgoing", "limit": 5 }
-  → [{ "node_id": "proj_alpha", ... }, { "node_id": "proj_beta", ... }]
-  Agent reasons: "Got the projects. Now I need their libraries."
-
-Round 3: POST /api/v1/connections
-  { "node_id": "proj_alpha",
-    "relation": { "match": "semantic", "value": "use", "threshold": 0.8 },
-    "direction": "outgoing", "limit": 10 }
-  → [{ "node_id": "react_1", ... }, { "node_id": "nodejs_1", ... }]
-
-  Agent synthesizes final answer from accumulated context.
-```
-
-#### `POST /api/v1/search/nodes`
-
-Discover nodes by property match or semantic similarity.
-
-* **Payload:**
-  ```json
-  {
-    "match": "exact" | "semantic",
-    "property": string,       // required for exact match (e.g., "name")
-    "value": string,          // the search term
-    "threshold": float,       // required for semantic match (0.0–1.0)
-    "labels": [string],       // optional label filter
-    "limit": int              // max results (default: 10)
+```graphql
+# Round 1: Find Alice
+{
+  searchNodes(match: EXACT, property: "name", value: "Alice") {
+    edges { node { id, labels } }
   }
-  ```
-* **Exact match:** Filters nodes where the specified property equals the value.
-* **Semantic match:** Embeds the value via Sidecar, searches the `node_content` vector collection.
-* **Returns:** List of matching nodes with `node_id`, `content`, `labels`, `metadata`.
+}
 
-#### `POST /api/v1/connections`
-
-Get connections of a known node with semantic relation matching and optional target filtering.
-
-* **Payload:**
-  ```json
-  {
-    "node_id": string,
-    "relation": {
-      "match": "exact" | "semantic",
-      "value": string,
-      "threshold": float        // required for semantic match
-    },
-    "target": {                  // optional target filter
-      "match": "semantic",
-      "on": "content" | "label", // search against node content or label vectors
-      "value": string,
-      "threshold": float
-    },
-    "direction": "outgoing" | "incoming" | "both",
-    "temporal": {                // optional temporal filter
-      "mode": "at" | "within" | "overlaps",
-      "at": datetime,           // required for "at" mode
-      "from": datetime,         // required for "within" / "overlaps" modes
-      "to": datetime            // required for "within" / "overlaps" modes
-    },
-    "limit": int                 // max results (default: 10)
+# Round 2: Get Alice's created projects
+{
+  connections(
+    nodeId: "alice_123"
+    relation: { match: SEMANTIC, value: "create", threshold: 0.8 }
+    target: { on: LABEL, value: "project", threshold: 0.7 }
+    direction: OUTGOING, first: 5
+  ) {
+    edges { node { id, content, labels } relationType relationScore }
+    pageInfo { hasNextPage, endCursor }
   }
-  ```
-* **Relation matching:** When `match: "semantic"`, uses the waterfall search strategy — embeds the value, searches the relation registry, cascades through matches in descending similarity order.
-* **Target filtering:** When present, filters target nodes by semantic similarity on either their content or label vectors. The agent chooses which vector space to search against.
-* **Temporal filtering:** Three modes — `at` (edge valid at a point in time), `within` (edge fits entirely inside a range), `overlaps` (edge active at any point during a range). Omitting the temporal field returns all edges regardless of time.
-* **Returns:** List of connections with `node_id`, `content`, `labels`, `relation_type`, `relation_score`, `valid_from`, `valid_to`.
+}
 
-### 4.2. Data Layer (Ingestion)
+# Round 3: Batch — get libraries for BOTH projects in one request via aliases
+{
+  alphaLibs: connections(
+    nodeId: "proj_alpha"
+    relation: { match: SEMANTIC, value: "uses", threshold: 0.8 }
+    direction: OUTGOING, first: 10
+  ) {
+    edges { node { id, content, labels } relationType }
+  }
+  betaLibs: connections(
+    nodeId: "proj_beta"
+    relation: { match: SEMANTIC, value: "uses", threshold: 0.8 }
+    direction: OUTGOING, first: 10
+  ) {
+    edges { node { id, content, labels } relationType }
+  }
+}
+# Agent synthesizes final answer from accumulated context.
+```
 
-* **`POST /api/v1/nodes`**
-  * **Payload:** `{"text": string, "metadata": object, "labels": string[]}`
-  * **Action:** Calls Embedding Sidecar to embed text and labels → inserts node row with vectors into PostgreSQL.
-  * **Returns:** `{"node_id": string}`
+**Key behaviors:**
 
-* **`POST /api/v1/edges`**
-  * **Payload:** `{"source_id": string, "target_id": string, "relation_type": string, "properties": object, "valid_from": datetime?, "valid_to": datetime?}`
-  * **Action:** Creates a directed edge. Sets `created_at` automatically. If `valid_from` and `valid_to` are omitted, the edge is stored as a **fact** (always true). If the relation type is new, embeds it and adds to the relation registry.
-  * **Returns:** `{"edge_id": string}`
+* **Relation matching:** When `match: SEMANTIC`, uses the waterfall search strategy — embeds the value, searches the relation registry, cascades through matches in descending similarity order.
+* **Target filtering:** When present, filters target nodes by semantic similarity on either their content or label vectors (via the `node_labels` table). The agent chooses which vector space to search against.
+* **Temporal filtering:** Three modes — `AT` (edge valid at a point in time), `WITHIN` (edge fits entirely inside a range), `OVERLAPS` (edge active at any point during a range). Facts always match. Omitting the temporal field returns all edges.
+* **Pagination:** Relay cursor-style. Use `first` + `after` for forward pagination. `pageInfo.endCursor` provides the cursor for the next page.
 
-### 4.3. Relation Registry (Librarian Support)
+### 4.3. Mutations (Data Management)
 
-* **`GET /api/v1/relations`** — List all known relation types with usage counts.
-* **`POST /api/v1/relations`** — Explicitly register a canonical relation type and embed it.
-  * **Payload:** `{"name": string}`
-* **`POST /api/v1/relations/merge`** — Re-label all edges from `sources` to `target`. Remove sources from the registry.
-  * **Payload:** `{"sources": string[], "target": string}`
-* **`DELETE /api/v1/relations/{name}`** — Remove a relation type (only if no edges reference it).
+```graphql
+type Mutation {
+  # --- Node CRUD ---
+  createNode(input: CreateNodeInput!): Node!
+  updateNode(id: ID!, input: UpdateNodeInput!): Node!
+  deleteNode(id: ID!): Boolean!
 
-### 4.4. Maintenance Layer (Librarian Queue)
+  # --- Edge CRUD ---
+  createEdge(input: CreateEdgeInput!): Edge!
+  deleteEdge(id: ID!): Boolean!
 
-* **`GET /api/v1/maintenance/orphans`** — Nodes with 0 edges.
-* **`GET /api/v1/maintenance/similar-pairs`** — Unconnected node pairs above a similarity threshold.
-  * **Payload:** `{"similarity_threshold": float}`
-* **`GET /api/v1/schema`** — Summary of all active node labels and relationship types.
+  # --- Relation Registry (Librarian Support) ---
+  registerRelation(name: String!): Relation!
+  mergeRelations(sources: [String!]!, target: String!): Relation!
+  deleteRelation(name: String!): Boolean!
+}
+
+input CreateNodeInput {
+  text: String!
+  labels: [String!]!
+  properties: JSON            # key-value pairs, e.g. { "name": "Alice", "age": "30" }
+}
+
+input UpdateNodeInput {
+  text: String            # re-embeds content if changed
+  labels: [String!]       # re-embeds labels if changed
+  properties: JSON        # replaces all properties if provided
+}
+
+input CreateEdgeInput {
+  sourceId: ID!
+  targetId: ID!
+  relationType: String!
+  properties: JSON
+  validFrom: DateTime     # omit for facts (always true)
+  validTo: DateTime       # omit for ongoing states
+}
+```
+
+**Mutation behaviors:**
+
+* **`createNode`:** Calls Embedding Sidecar to embed text and labels → inserts node row, label rows, and property rows into PostgreSQL.
+* **`updateNode`:** Updates specified fields. If `text` or `labels` change, re-embeds them via the Sidecar. If `properties` is provided, replaces all property rows.
+* **`deleteNode`:** Removes the node and all associated edges (CASCADE). Returns `true` on success.
+* **`createEdge`:** Creates a directed edge. Sets `created_at` automatically. If `validFrom` and `validTo` are omitted, the edge is stored as a **fact**. If the relation type is new, embeds it and adds to the registry.
+* **`deleteEdge`:** Removes a single edge. Returns `true` on success.
+* **`registerRelation`:** Embeds and registers a canonical relation type.
+* **`mergeRelations`:** Re-labels all edges from `sources` to `target`. Removes source entries from the registry.
+* **`deleteRelation`:** Removes a relation type (only if no edges reference it).
 
 ## 5. Out of Scope
 
@@ -291,6 +409,6 @@ To maintain the "dumb" architecture, the following are strictly excluded from th
 ## 6. Technology Stack
 
 * **Language:** TypeScript (Node.js runtime).
-* **REST Framework:** TBD (candidates: Fastify, Express, Hono).
+* **API:** GraphQL (candidates: graphql-yoga, Apollo Server, Mercurius).
 * **Database:** PostgreSQL with pgvector extension.
 * **Embedding Sidecar:** Python microservice using HuggingFace `sentence-transformers` (e.g., `bge-small-en-v1.5`). Exposes a single `POST /embed` endpoint. Independently deployable.
