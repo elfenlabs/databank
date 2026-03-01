@@ -1,4 +1,5 @@
 import { sql } from "kysely";
+import { GraphQLError } from "graphql";
 import { embed } from "../../sidecar/client.ts";
 import { toVectorLiteral, type GraphContext } from "../context.ts";
 
@@ -121,8 +122,9 @@ export const relationResolvers = {
         .executeTakeFirstOrThrow();
 
       if (Number(usedBy.count) > 0) {
-        throw new Error(
+        throw new GraphQLError(
           `Cannot delete relation '${args.name}': still referenced by ${usedBy.count} edge(s)`,
+          { extensions: { code: "CONFLICT" } },
         );
       }
 

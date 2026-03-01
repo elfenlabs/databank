@@ -1,4 +1,5 @@
 import { sql } from "kysely";
+import { GraphQLError } from "graphql";
 import { embed } from "../../sidecar/client.ts";
 import {
   decodeCursor,
@@ -45,7 +46,7 @@ export const connectionResolvers = {
         } else {
           // SEMANTIC — waterfall search on relations table
           if (args.relation.threshold == null) {
-            throw new Error("'threshold' is required for SEMANTIC relation match");
+            throw new GraphQLError("'threshold' is required for SEMANTIC relation match", { extensions: { code: "BAD_REQUEST" } });
           }
 
           const relVector = await embed(args.relation.value);
@@ -116,7 +117,7 @@ export const connectionResolvers = {
         const { mode, at, from, to } = args.temporal;
 
         if (mode === "AT") {
-          if (!at) throw new Error("'at' is required for AT temporal mode");
+          if (!at) throw new GraphQLError("'at' is required for AT temporal mode", { extensions: { code: "BAD_REQUEST" } });
           // Facts (valid_from IS NULL) always match
           edgeQuery = edgeQuery.where((eb) =>
             eb.or([
@@ -131,7 +132,7 @@ export const connectionResolvers = {
             ]),
           );
         } else if (mode === "WITHIN") {
-          if (!from || !to) throw new Error("'from' and 'to' are required for WITHIN temporal mode");
+          if (!from || !to) throw new GraphQLError("'from' and 'to' are required for WITHIN temporal mode", { extensions: { code: "BAD_REQUEST" } });
           edgeQuery = edgeQuery.where((eb) =>
             eb.or([
               eb("valid_from", "is", null),
@@ -142,7 +143,7 @@ export const connectionResolvers = {
             ]),
           );
         } else if (mode === "OVERLAPS") {
-          if (!from || !to) throw new Error("'from' and 'to' are required for OVERLAPS temporal mode");
+          if (!from || !to) throw new GraphQLError("'from' and 'to' are required for OVERLAPS temporal mode", { extensions: { code: "BAD_REQUEST" } });
           edgeQuery = edgeQuery.where((eb) =>
             eb.or([
               eb("valid_from", "is", null),

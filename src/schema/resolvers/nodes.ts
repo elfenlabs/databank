@@ -1,4 +1,5 @@
 import { sql } from "kysely";
+import { GraphQLError } from "graphql";
 import { embed, embedBatch } from "../../sidecar/client.ts";
 import {
   decodeCursor,
@@ -28,7 +29,7 @@ export const nodeResolvers = {
 
       if (args.match === "EXACT") {
         if (!args.property) {
-          throw new Error("'property' is required for EXACT match");
+          throw new GraphQLError("'property' is required for EXACT match", { extensions: { code: "BAD_REQUEST" } });
         }
 
         // Build base query filtering by property
@@ -67,7 +68,7 @@ export const nodeResolvers = {
 
       // SEMANTIC match — search by content vector similarity
       if (args.threshold == null) {
-        throw new Error("'threshold' is required for SEMANTIC match");
+        throw new GraphQLError("'threshold' is required for SEMANTIC match", { extensions: { code: "BAD_REQUEST" } });
       }
 
       const queryVector = await embed(args.value);
