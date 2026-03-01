@@ -1,0 +1,40 @@
+# Ephemeral test infra — no named volumes, non-conflicting ports.
+# Usage: docker compose -f tests/e2e/docker-compose.yml up -d --wait
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: databank_test
+      POSTGRES_USER: databank
+      POSTGRES_PASSWORD: databank
+    ports:
+      - "15432:5432"
+    volumes:
+      - ../../infra/pg/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U databank"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  sidecar:
+    build:
+      context: ../../infra/sidecar
+    environment:
+      EMBED_MODEL: BAAI/bge-small-en-v1.5
+    ports:
+      - "18100:8100"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8100/docs')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+volumes:
+  hf_cache:
+    external: true
+    name: local_hf_cache

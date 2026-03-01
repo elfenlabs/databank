@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "migrate": "dbmate --no-dump-schema up",
-    "migrate:new": "dbmate new"
+    "migrate:new": "dbmate new",
+    "test": "bun test tests/unit",
+    "test:e2e": "bun test tests/e2e --timeout 60000",
+    "test:types": "bunx tsc --noEmit",
+    "check": "bun run test:types && bun run test && bun run test:e2e"
   },
   "devDependencies": {
     "@types/bun": "latest",
