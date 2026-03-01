@@ -4,8 +4,8 @@ if (!EMBED_URL) {
 }
 
 /**
- * Embed a single text string via the sidecar.
- * Returns a vector (number[]) matching the sidecar model's dimension.
+ * Embed a single text string via the embedder.
+ * Returns a vector (number[]) matching the embedder model's dimension.
  */
 export async function embed(text: string): Promise<number[]> {
   const res = await fetch(`${EMBED_URL}/embed`, {
@@ -15,7 +15,7 @@ export async function embed(text: string): Promise<number[]> {
   });
 
   if (!res.ok) {
-    throw new Error(`Sidecar error ${res.status}: ${await res.text()}`);
+    throw new Error(`Embedder error ${res.status}: ${await res.text()}`);
   }
 
   const data = (await res.json()) as { vector: number[] };
@@ -36,7 +36,7 @@ export async function embedBatch(texts: string[]): Promise<number[][]> {
   });
 
   if (!res.ok) {
-    throw new Error(`Sidecar error ${res.status}: ${await res.text()}`);
+    throw new Error(`Embedder error ${res.status}: ${await res.text()}`);
   }
 
   const data = (await res.json()) as { vectors: number[][] };

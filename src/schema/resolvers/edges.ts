@@ -1,5 +1,5 @@
 import { sql } from "kysely";
-import { embed } from "../../sidecar/client.ts";
+import { embed } from "../../embedder/client.ts";
 import { toVectorLiteral, type GraphContext } from "../context.ts";
 
 export const edgeResolvers = {

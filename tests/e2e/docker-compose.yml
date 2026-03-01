@@ -18,9 +18,9 @@ services:
       timeout: 2s
       retries: 10
 
-  sidecar:
+  embedder:
     build:
-      context: ../../infra/sidecar
+      context: ../../infra/embedder
     environment:
       EMBED_MODEL: BAAI/bge-small-en-v1.5
     ports:

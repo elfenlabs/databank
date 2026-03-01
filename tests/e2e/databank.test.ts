@@ -8,7 +8,7 @@ import { gql } from "./helpers.ts";
 
 beforeAll(async () => {
   await setup();
-}, 120_000); // sidecar build + model download can take a while
+}, 120_000); // embedder build + model download can take a while
 
 afterAll(async () => {
   await teardown();

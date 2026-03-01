@@ -1,4 +1,4 @@
-"""Embedding Sidecar — stateless microservice that converts text to vectors."""
+"""Embedder — stateless microservice that converts text to vectors."""
 
 import os
 from contextlib import asynccontextmanager
@@ -20,7 +20,7 @@ async def lifespan(_app: FastAPI):
     model = None
 
 
-app = FastAPI(title="Embedding Sidecar", lifespan=lifespan)
+app = FastAPI(title="Embedder", lifespan=lifespan)
 
 
 class SingleRequest(BaseModel):

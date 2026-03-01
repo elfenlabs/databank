@@ -1,6 +1,6 @@
 import { sql } from "kysely";
 import { GraphQLError } from "graphql";
-import { embed, embedBatch } from "../../sidecar/client.ts";
+import { embed, embedBatch } from "../../embedder/client.ts";
 import {
   decodeCursor,
   paginate,
