@@ -1,5 +1,6 @@
 # === Local dev ===
 .local/
+db/schema.sql
 
 # === Node ===
 node_modules/

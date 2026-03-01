@@ -1,0 +1,24 @@
+{
+  "name": "databank",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "migrate": "dbmate --no-dump-schema up",
+    "migrate:new": "dbmate new"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/pg": "^8.18.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "graphql": "^16.13.0",
+    "graphql-yoga": "^5.18.0",
+    "kysely": "^0.28.11",
+    "pg": "^8.19.0"
+  }
+}

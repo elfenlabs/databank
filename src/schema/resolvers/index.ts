@@ -1,0 +1,31 @@
+import { nodeResolvers } from "./nodes.ts";
+import { connectionResolvers } from "./connections.ts";
+import { edgeResolvers } from "./edges.ts";
+import { relationResolvers } from "./relations.ts";
+import { maintenanceResolvers } from "./maintenance.ts";
+
+/**
+ * Deep-merge all resolver maps into a single object.
+ * Handles Query + Mutation namespaces from each module.
+ */
+function mergeResolvers(
+  ...maps: Array<Record<string, Record<string, Function>>>
+): Record<string, Record<string, Function>> {
+  const result: Record<string, Record<string, Function>> = {};
+
+  for (const map of maps) {
+    for (const [typeName, fields] of Object.entries(map)) {
+      result[typeName] = { ...result[typeName], ...fields };
+    }
+  }
+
+  return result;
+}
+
+export const resolvers = mergeResolvers(
+  nodeResolvers,
+  connectionResolvers,
+  edgeResolvers,
+  relationResolvers,
+  maintenanceResolvers,
+);

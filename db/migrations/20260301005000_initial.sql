@@ -1,6 +1,4 @@
--- Migration: 001_initial
--- Description: Initial schema — nodes, labels, properties, edges, relations
--- Requires: pgvector extension (enabled via infra/pg/init.sql)
+-- migrate:up
 
 -- Relation registry (must come first — edges reference it)
 CREATE TABLE relations (
@@ -48,3 +46,11 @@ CREATE TABLE edges (
   valid_to        TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- migrate:down
+
+DROP TABLE IF EXISTS edges;
+DROP TABLE IF EXISTS node_properties;
+DROP TABLE IF EXISTS node_labels;
+DROP TABLE IF EXISTS nodes;
+DROP TABLE IF EXISTS relations;
