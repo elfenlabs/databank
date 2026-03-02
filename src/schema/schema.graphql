@@ -1,17 +1,17 @@
 scalar DateTime
 scalar JSON
 
-# --- Relay Node Interface ---
-interface Node {
-  id: ID!
-}
+"""Relay Global Object Identification — any type with a unique `id`."""
+interface Node { id: ID! }
 
-# --- Enums ---
 enum Direction { OUTGOING INCOMING BOTH }
 enum TemporalMode { AT WITHIN OVERLAPS }
 enum MatchType { EXACT SEMANTIC }
 
-# --- Inputs ---
+"""
+Temporal filter for edge validity windows.
+AT requires `at`; WITHIN and OVERLAPS require `from` + `to`.
+"""
 input TemporalFilter {
   mode: TemporalMode!
   at: DateTime
@@ -20,37 +20,46 @@ input TemporalFilter {
 }
 
 input CreateEntityInput {
+  """Text content, automatically embedded for semantic search."""
   content: String!
   labels: [String!]!
+  """Key-value properties. Keys are auto-registered in the property registry."""
   properties: JSON
 }
 
+"""Only provided fields are changed; omitted fields are preserved."""
 input UpdateEntityInput {
   content: String
+  """Replaces all labels when set."""
   labels: [String!]
+  """Replaces all properties when set."""
   properties: JSON
 }
 
 input CreateEdgeInput {
   sourceId: ID!
   targetId: ID!
+  """Auto-registered in the relation registry if new."""
   relationType: String!
   properties: JSON
   validFrom: DateTime
   validTo: DateTime
 }
 
+"""Cosine similarity filter. Embeds the query and matches against content vectors."""
 input SemanticSearch {
   query: String!
+  """Minimum cosine similarity (0.0–1.0)."""
   threshold: Float!
 }
 
+"""Exact key-value match. Multiple filters are combined with AND."""
 input PropertyFilter {
   key: String!
   value: String!
 }
 
-# --- Entity Types ---
+"""Knowledge entity with content, labels, and key-value properties."""
 type Entity implements Node {
   id: ID!
   content: String!
@@ -59,40 +68,7 @@ type Entity implements Node {
   createdAt: DateTime!
 }
 
-# --- Relation Types (traversal results) ---
-type RelationEdge {
-  node: Entity!
-  edge: Edge!
-  score: Float
-  cursor: String!
-}
-
-type RelationConnection {
-  edges: [RelationEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type EntityEdge {
-  node: Entity!
-  score: Float
-  cursor: String!
-}
-
-type EntityConnection {
-  edges: [EntityEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type PageInfo {
-  hasNextPage: Boolean!
-  hasPreviousPage: Boolean!
-  startCursor: String
-  endCursor: String
-}
-
-# --- Edge Type ---
+"""Directed, typed relationship between two entities with optional temporal validity."""
 type Edge implements Node {
   id: ID!
   sourceId: ID!
@@ -104,7 +80,43 @@ type Edge implements Node {
   createdAt: DateTime!
 }
 
-# --- Registry Types (shared by relation keys + property keys) ---
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type EntityEdge {
+  node: Entity!
+  """Cosine similarity when `search` is active; null otherwise."""
+  score: Float
+  cursor: String!
+}
+
+type EntityConnection {
+  edges: [EntityEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+"""Traversal result: adjacent entity + full edge object."""
+type RelationEdge {
+  node: Entity!
+  """Full edge object (id, properties, temporal validity)."""
+  edge: Edge!
+  """Cosine similarity when `targetSearch` is active; null otherwise."""
+  score: Float
+  cursor: String!
+}
+
+type RelationConnection {
+  edges: [RelationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+"""Named entry in a registry (relation types or property keys)."""
 type RegistryEntry {
   name: String!
   description: String
@@ -114,6 +126,7 @@ type RegistryEntry {
 
 type RegistryEdge {
   node: RegistryEntry!
+  """1.0 for exact/unfiltered, cosine similarity for semantic matches."""
   score: Float!
   cursor: String!
 }
@@ -124,13 +137,13 @@ type RegistryConnection {
   totalCount: Int!
 }
 
-# --- Maintenance ---
 type SimilarPair {
   entityA: Entity!
   entityB: Entity!
   similarity: Float!
 }
 
+"""Aggregate statistics and vocabulary of the databank."""
 type SchemaInfo {
   labels: [String!]!
   relationTypes: [String!]!
@@ -139,20 +152,32 @@ type SchemaInfo {
   edgeCount: Int!
 }
 
-# --- Queries ---
 type Query {
+  """
+  Search and filter entities.
+  Labels filter is OR; properties filter is AND; all filters are combined with AND.
+  Sorted by similarity when `search` is set, otherwise by creation time (desc).
+  """
   entities(
     search: SemanticSearch
+    """OR — entities with any of these labels."""
     labels: [String!]
+    """AND — all key-value pairs must match."""
     properties: [PropertyFilter!]
     first: Int!
     after: String
   ): EntityConnection!
 
+  """
+  Traverse the graph from an entity, returning adjacent entities and full edge objects.
+  Sorted by edge creation time (desc).
+  """
   relations(
     entityId: ID!
     relationType: String
+    """OR — targets with any of these labels."""
     targetLabels: [String!]
+    """Semantic filter on target content. Populates `score` in results."""
     targetSearch: SemanticSearch
     direction: Direction = OUTGOING
     temporal: TemporalFilter
@@ -160,41 +185,54 @@ type Query {
     after: String
   ): RelationConnection!
 
+  """Browse or search relation type registry. Default sort: usage count (desc)."""
   relationKeys(
     match: MatchType
     value: String
+    """Required when `match: SEMANTIC`."""
     threshold: Float
     first: Int = 20
     after: String
   ): RegistryConnection!
 
+  """Browse or search property key registry. Default sort: usage count (desc)."""
   propertyKeys(
     match: MatchType
     value: String
+    """Required when `match: SEMANTIC`."""
     threshold: Float
     first: Int = 20
     after: String
   ): RegistryConnection!
 
+  """Entities with no edges. Sorted by creation time (desc)."""
   orphans(first: Int = 20, after: String): EntityConnection!
+
+  """Entity pairs with high content similarity but no direct edge. Max 50 pairs."""
   similarPairs(threshold: Float!): [SimilarPair!]!
+
   schema: SchemaInfo!
 }
 
-# --- Mutations ---
 type Mutation {
   createEntity(input: CreateEntityInput!): Entity!
   updateEntity(id: ID!, input: UpdateEntityInput!): Entity!
+  """Cascades: removes associated labels, properties, and edges."""
   deleteEntity(id: ID!): Boolean!
 
+  """Relation type is auto-registered if new."""
   createEdge(input: CreateEdgeInput!): Edge!
   deleteEdge(id: ID!): Boolean!
 
   registerRelation(name: String!, description: String): RegistryEntry!
+  """Re-labels all edges from source types to target type."""
   mergeRelations(sources: [String!]!, target: String!): RegistryEntry!
+  """Fails if edges still reference this type."""
   deleteRelation(name: String!): Boolean!
 
   registerProperty(name: String!, description: String): RegistryEntry!
+  """Re-labels all properties from source keys to target key."""
   mergeProperties(sources: [String!]!, target: String!): RegistryEntry!
+  """Fails if entities still use this key."""
   deleteProperty(name: String!): Boolean!
 }
