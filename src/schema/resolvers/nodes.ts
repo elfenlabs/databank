@@ -102,7 +102,7 @@ export const nodeResolvers = {
       ctx: GraphContext,
     ) {
       // Embed content + labels in one batch call
-      const textsToEmbed = [args.input.text, ...args.input.labels];
+      const textsToEmbed = [args.input.content, ...args.input.labels];
       const vectors = await embedBatch(textsToEmbed);
       const contentVector = toVectorLiteral(vectors[0]!);
       const labelVectors = vectors.slice(1);
@@ -111,7 +111,7 @@ export const nodeResolvers = {
       const node = await ctx.db
         .insertInto("nodes")
         .values({
-          content: args.input.text,
+          content: args.input.content,
           content_vector: sql`${contentVector}::vector`,
         } as any)
         .returningAll()
@@ -168,12 +168,12 @@ export const nodeResolvers = {
       const { id, input } = args;
 
       // Re-embed content if changed
-      if (input.text != null) {
-        const contentVector = toVectorLiteral(await embed(input.text));
+      if (input.content != null) {
+        const contentVector = toVectorLiteral(await embed(input.content));
         await ctx.db
           .updateTable("nodes")
           .set({
-            content: input.text,
+            content: input.content,
             content_vector: sql`${contentVector}::vector`,
           } as any)
           .where("id", "=", id)

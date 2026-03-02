@@ -16,13 +16,13 @@ input TemporalFilter {
 
 
 input CreateNodeInput {
-  text: String!
+  content: String!
   labels: [String!]!
   properties: JSON
 }
 
 input UpdateNodeInput {
-  text: String
+  content: String
   labels: [String!]
   properties: JSON
 }

@@ -49,19 +49,19 @@ describe("Databank E2E", () => {
     }>(`
       mutation {
         ts: createNode(input: {
-          text: "TypeScript is a typed superset of JavaScript"
+          content: "TypeScript is a typed superset of JavaScript"
           labels: ["language", "programming"]
           properties: { name: "TypeScript", paradigm: "multi-paradigm" }
         }) { id content labels properties }
 
         rust: createNode(input: {
-          text: "Rust is a systems programming language focused on safety"
+          content: "Rust is a systems programming language focused on safety"
           labels: ["language", "programming"]
           properties: { name: "Rust" }
         }) { id content labels }
 
         pg: createNode(input: {
-          text: "PostgreSQL is a powerful relational database"
+          content: "PostgreSQL is a powerful relational database"
           labels: ["database", "infrastructure"]
           properties: { name: "PostgreSQL" }
         }) { id content labels }

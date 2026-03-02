@@ -88,7 +88,7 @@ describe("MCP Server E2E", () => {
       arguments: {
         query: `mutation {
           createNode(input: {
-            text: "MCP test node"
+            content: "MCP test node"
             labels: ["test"]
             properties: { source: "mcp-e2e" }
           }) { id content labels properties }
