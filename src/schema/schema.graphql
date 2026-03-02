@@ -14,14 +14,13 @@ input TemporalFilter {
   to: DateTime
 }
 
-
-input CreateNodeInput {
+input CreateEntityInput {
   content: String!
   labels: [String!]!
   properties: JSON
 }
 
-input UpdateNodeInput {
+input UpdateEntityInput {
   content: String
   labels: [String!]
   properties: JSON
@@ -46,8 +45,8 @@ input PropertyFilter {
   value: String!
 }
 
-# --- Node Types ---
-type Node {
+# --- Entity Types ---
+type Entity {
   id: ID!
   content: String!
   labels: [String!]!
@@ -57,7 +56,7 @@ type Node {
 
 # --- Connection Types (Relay-style pagination) ---
 type ConnectionEdge {
-  node: Node!
+  entity: Entity!
   relationType: String!
   validFrom: DateTime
   validTo: DateTime
@@ -70,13 +69,13 @@ type ConnectionResult {
   totalCount: Int!
 }
 
-type NodeEdge {
-  node: Node!
+type EntityEdge {
+  entity: Entity!
   cursor: String!
 }
 
-type NodeResult {
-  edges: [NodeEdge!]!
+type EntityResult {
+  edges: [EntityEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
 }
@@ -122,8 +121,8 @@ type RegistryResult {
 
 # --- Maintenance ---
 type SimilarPair {
-  nodeA: Node!
-  nodeB: Node!
+  entityA: Entity!
+  entityB: Entity!
   similarity: Float!
 }
 
@@ -131,19 +130,19 @@ type SchemaInfo {
   labels: [String!]!
   relationTypes: [String!]!
   propertyKeys: [String!]!
-  nodeCount: Int!
+  entityCount: Int!
   edgeCount: Int!
 }
 
 # --- Queries ---
 type Query {
-  nodes(
+  entities(
     search: SemanticSearch
     labels: [String!]
     properties: [PropertyFilter!]
     first: Int!
     after: String
-  ): NodeResult!
+  ): EntityResult!
 
   connections(
     nodeId: ID!
@@ -172,16 +171,16 @@ type Query {
     after: String
   ): RegistryResult!
 
-  orphans(first: Int = 20, after: String): NodeResult!
+  orphans(first: Int = 20, after: String): EntityResult!
   similarPairs(threshold: Float!): [SimilarPair!]!
   schema: SchemaInfo!
 }
 
 # --- Mutations ---
 type Mutation {
-  createNode(input: CreateNodeInput!): Node!
-  updateNode(id: ID!, input: UpdateNodeInput!): Node!
-  deleteNode(id: ID!): Boolean!
+  createEntity(input: CreateEntityInput!): Entity!
+  updateEntity(id: ID!, input: UpdateEntityInput!): Entity!
+  deleteEntity(id: ID!): Boolean!
 
   createEdge(input: CreateEdgeInput!): Edge!
   deleteEdge(id: ID!): Boolean!

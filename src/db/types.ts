@@ -23,23 +23,23 @@ export interface PropertyKeysTable {
   created_at: ColumnType<Date, Date | undefined, never>;
 }
 
-export interface NodesTable {
+export interface EntitiesTable {
   id: Generated<string>;
   content: string;
   content_vector: Vector | null;
   created_at: ColumnType<Date, Date | undefined, never>;
 }
 
-export interface NodeLabelsTable {
+export interface EntityLabelsTable {
   id: Generated<string>;
-  node_id: string;
+  entity_id: string;
   label: string;
   label_vector: Vector | null;
 }
 
-export interface NodePropertiesTable {
+export interface EntityPropertiesTable {
   id: Generated<string>;
-  node_id: string;
+  entity_id: string;
   key: string;
   value: string;
 }
@@ -62,8 +62,8 @@ export interface EdgesTable {
 export interface Database {
   relations: RelationsTable;
   property_keys: PropertyKeysTable;
-  nodes: NodesTable;
-  node_labels: NodeLabelsTable;
-  node_properties: NodePropertiesTable;
+  entities: EntitiesTable;
+  entity_labels: EntityLabelsTable;
+  entity_properties: EntityPropertiesTable;
   edges: EdgesTable;
 }

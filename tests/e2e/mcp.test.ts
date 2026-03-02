@@ -59,10 +59,10 @@ describe("MCP Server E2E", () => {
     const sdl = content[0]!.text;
     expect(sdl).toContain("type Query");
     expect(sdl).toContain("type Mutation");
-    expect(sdl).toContain("nodes");
+    expect(sdl).toContain("entities");
     expect(sdl).toContain("SemanticSearch");
     expect(sdl).toContain("PropertyFilter");
-    expect(sdl).toContain("createNode");
+    expect(sdl).toContain("createEntity");
     expect(sdl).toContain("connections");
     expect(sdl).toContain("RegistryEntry");
     expect(sdl).toContain("relationKeys");
@@ -72,13 +72,13 @@ describe("MCP Server E2E", () => {
   test("databank_query executes a GraphQL query", async () => {
     const result = await client.callTool({
       name: "databank_query",
-      arguments: { query: "{ schema { nodeCount edgeCount } }" },
+      arguments: { query: "{ schema { entityCount edgeCount } }" },
     });
 
     expect(result.isError).toBeFalsy();
     const content = result.content as Array<{ type: string; text: string }>;
     const json = JSON.parse(content[0]!.text);
-    expect(json.data.schema.nodeCount).toBeNumber();
+    expect(json.data.schema.entityCount).toBeNumber();
     expect(json.data.schema.edgeCount).toBeNumber();
   });
 
@@ -87,8 +87,8 @@ describe("MCP Server E2E", () => {
       name: "databank_query",
       arguments: {
         query: `mutation {
-          createNode(input: {
-            content: "MCP test node"
+          createEntity(input: {
+            content: "MCP test entity"
             labels: ["test"]
             properties: { source: "mcp-e2e" }
           }) { id content labels properties }
@@ -99,9 +99,9 @@ describe("MCP Server E2E", () => {
     expect(result.isError).toBeFalsy();
     const content = result.content as Array<{ type: string; text: string }>;
     const json = JSON.parse(content[0]!.text);
-    expect(json.data.createNode.content).toBe("MCP test node");
-    expect(json.data.createNode.labels).toEqual(["test"]);
-    expect(json.data.createNode.properties).toEqual({ source: "mcp-e2e" });
+    expect(json.data.createEntity.content).toBe("MCP test entity");
+    expect(json.data.createEntity.labels).toEqual(["test"]);
+    expect(json.data.createEntity.properties).toEqual({ source: "mcp-e2e" });
   });
 
   test("databank_query supports variables", async () => {
@@ -109,9 +109,9 @@ describe("MCP Server E2E", () => {
       name: "databank_query",
       arguments: {
         query: `query($props: [PropertyFilter!], $first: Int!) {
-          nodes(properties: $props, first: $first) {
+          entities(properties: $props, first: $first) {
             totalCount
-            edges { node { id content } }
+            edges { entity { id content } }
           }
         }`,
         variables: { props: [{ key: "source", value: "mcp-e2e" }], first: 10 },
@@ -121,7 +121,7 @@ describe("MCP Server E2E", () => {
     expect(result.isError).toBeFalsy();
     const content = result.content as Array<{ type: string; text: string }>;
     const json = JSON.parse(content[0]!.text);
-    expect(json.data.nodes.totalCount).toBeGreaterThanOrEqual(1);
+    expect(json.data.entities.totalCount).toBeGreaterThanOrEqual(1);
   });
 
   test("databank_query reports GraphQL errors", async () => {

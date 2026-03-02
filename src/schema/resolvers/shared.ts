@@ -2,22 +2,22 @@ import type { Kysely } from "kysely";
 import type { Database } from "../../db/types.ts";
 
 /**
- * Resolve a raw nodes row into a full GraphQL Node (with labels + properties).
+ * Resolve a raw entities row into a full GraphQL Entity (with labels + properties).
  */
-export async function resolveNode(
+export async function resolveEntity(
   db: Kysely<Database>,
   row: { id: string; content: string; created_at: Date },
 ) {
   const [labels, properties] = await Promise.all([
     db
-      .selectFrom("node_labels")
+      .selectFrom("entity_labels")
       .select("label")
-      .where("node_id", "=", row.id)
+      .where("entity_id", "=", row.id)
       .execute(),
     db
-      .selectFrom("node_properties")
+      .selectFrom("entity_properties")
       .select(["key", "value"])
-      .where("node_id", "=", row.id)
+      .where("entity_id", "=", row.id)
       .execute(),
   ]);
 
@@ -31,11 +31,11 @@ export async function resolveNode(
 }
 
 /**
- * Resolve multiple node rows in parallel.
+ * Resolve multiple entity rows in parallel.
  */
-export async function resolveNodes(
+export async function resolveEntities(
   db: Kysely<Database>,
   rows: Array<{ id: string; content: string; created_at: Date }>,
 ) {
-  return Promise.all(rows.map((r) => resolveNode(db, r)));
+  return Promise.all(rows.map((r) => resolveEntity(db, r)));
 }

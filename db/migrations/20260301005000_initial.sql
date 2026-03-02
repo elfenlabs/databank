@@ -18,38 +18,38 @@ CREATE TABLE property_keys (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Nodes
-CREATE TABLE nodes (
+-- Entities
+CREATE TABLE entities (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   content         TEXT NOT NULL,
   content_vector  vector(384),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Node labels (one row per label, each with its own embedding)
-CREATE TABLE node_labels (
+-- Entity labels (one row per label, each with its own embedding)
+CREATE TABLE entity_labels (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  node_id         UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  entity_id       UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
   label           TEXT NOT NULL,
   label_vector    vector(384),
-  UNIQUE(node_id, label)
+  UNIQUE(entity_id, label)
 );
 
--- Node properties (normalized key-value pairs)
-CREATE TABLE node_properties (
+-- Entity properties (normalized key-value pairs)
+CREATE TABLE entity_properties (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  node_id         UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  entity_id       UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
   key             TEXT NOT NULL,
   value           TEXT NOT NULL,
-  UNIQUE(node_id, key)
+  UNIQUE(entity_id, key)
 );
-CREATE INDEX idx_node_properties_lookup ON node_properties(key, value);
+CREATE INDEX idx_entity_properties_lookup ON entity_properties(key, value);
 
 -- Edges (directed relationships with temporal metadata)
 CREATE TABLE edges (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_id       UUID NOT NULL REFERENCES nodes(id),
-  target_id       UUID NOT NULL REFERENCES nodes(id),
+  source_id       UUID NOT NULL REFERENCES entities(id),
+  target_id       UUID NOT NULL REFERENCES entities(id),
   relation_type   TEXT NOT NULL REFERENCES relations(name),
   properties      JSONB NOT NULL DEFAULT '{}',
   valid_from      TIMESTAMPTZ,
@@ -60,8 +60,8 @@ CREATE TABLE edges (
 -- migrate:down
 
 DROP TABLE IF EXISTS edges;
-DROP TABLE IF EXISTS node_properties;
-DROP TABLE IF EXISTS node_labels;
-DROP TABLE IF EXISTS nodes;
+DROP TABLE IF EXISTS entity_properties;
+DROP TABLE IF EXISTS entity_labels;
+DROP TABLE IF EXISTS entities;
 DROP TABLE IF EXISTS property_keys;
 DROP TABLE IF EXISTS relations;

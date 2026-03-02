@@ -16,7 +16,7 @@ type RegistryTable = "relations" | "property_keys";
 
 /** What table to check for usage when deleting a registry entry. */
 interface UsageGuard {
-  table: "edges" | "node_properties";
+  table: "edges" | "entity_properties";
   column: string;
   label: string; // human-readable name for error messages
 }
@@ -189,7 +189,7 @@ function makeRegistryResolvers(config: RegistryConfig) {
           .execute();
       } else {
         await ctx.db
-          .updateTable("node_properties")
+          .updateTable("entity_properties")
           .set({ key: args.target })
           .where("key", "in", args.sources)
           .execute();
@@ -332,7 +332,7 @@ export async function autoRegisterPropertyKeys(
 }
 
 /**
- * Decrement usage_count for property keys (used during updateNode property replacement).
+ * Decrement usage_count for property keys (used during updateEntity property replacement).
  */
 export async function decrementPropertyKeys(
   ctx: GraphContext,
@@ -358,7 +358,7 @@ const relations = makeRegistryResolvers({
 
 const properties = makeRegistryResolvers({
   registryTable: "property_keys",
-  usageGuard: { table: "node_properties", column: "key", label: "property" },
+  usageGuard: { table: "entity_properties", column: "key", label: "property" },
 });
 
 export const registryResolvers = {

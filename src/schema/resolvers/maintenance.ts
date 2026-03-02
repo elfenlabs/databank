@@ -5,7 +5,7 @@ import {
   toVectorLiteral,
   type GraphContext,
 } from "../context.ts";
-import { resolveNode, resolveNodes } from "./shared.ts";
+import { resolveEntity, resolveEntities } from "./shared.ts";
 
 export const maintenanceResolvers = {
   Query: {
@@ -17,9 +17,9 @@ export const maintenanceResolvers = {
       const limit = args.first ?? 20;
       const offset = args.after ? decodeCursor(args.after) + 1 : 0;
 
-      // Nodes with no edges (neither source nor target)
+      // Entities with no edges (neither source nor target)
       const baseQuery = ctx.db
-        .selectFrom("nodes")
+        .selectFrom("entities")
         .where(
           "id",
           "not in",
@@ -41,8 +41,8 @@ export const maintenanceResolvers = {
         .limit(limit)
         .execute();
 
-      const nodes = await resolveNodes(ctx.db, rows);
-      return paginate(nodes, totalCount, offset, limit);
+      const entities = await resolveEntities(ctx.db, rows);
+      return paginate(entities, totalCount, offset, limit);
     },
 
     async similarPairs(
@@ -50,10 +50,10 @@ export const maintenanceResolvers = {
       args: { threshold: number },
       ctx: GraphContext,
     ) {
-      // Find node pairs with high content vector similarity but no direct edge
+      // Find entity pairs with high content vector similarity but no direct edge
       const rows = await ctx.db
-        .selectFrom("nodes as a")
-        .innerJoin("nodes as b", (join) =>
+        .selectFrom("entities as a")
+        .innerJoin("entities as b", (join) =>
           join.on(sql`a.id < b.id`),
         )
         .select([
@@ -85,19 +85,19 @@ export const maintenanceResolvers = {
 
       const pairs = await Promise.all(
         rows.map(async (row) => {
-          const [nodeA, nodeB] = await Promise.all([
-            resolveNode(ctx.db, {
+          const [entityA, entityB] = await Promise.all([
+            resolveEntity(ctx.db, {
               id: row.a_id,
               content: row.a_content,
               created_at: row.a_created_at,
             }),
-            resolveNode(ctx.db, {
+            resolveEntity(ctx.db, {
               id: row.b_id,
               content: row.b_content,
               created_at: row.b_created_at,
             }),
           ]);
-          return { nodeA, nodeB, similarity: row.similarity };
+          return { entityA, entityB, similarity: row.similarity };
         }),
       );
 
@@ -105,9 +105,9 @@ export const maintenanceResolvers = {
     },
 
     async schema(_: unknown, __: unknown, ctx: GraphContext) {
-      const [labels, relationTypes, propKeys, nodeCount, edgeCount] = await Promise.all([
+      const [labels, relationTypes, propKeys, entityCount, edgeCount] = await Promise.all([
         ctx.db
-          .selectFrom("node_labels")
+          .selectFrom("entity_labels")
           .select("label")
           .distinct()
           .execute(),
@@ -120,7 +120,7 @@ export const maintenanceResolvers = {
           .select("name")
           .execute(),
         ctx.db
-          .selectFrom("nodes")
+          .selectFrom("entities")
           .select(sql<number>`count(*)`.as("count"))
           .executeTakeFirstOrThrow(),
         ctx.db
@@ -133,7 +133,7 @@ export const maintenanceResolvers = {
         labels: labels.map((l) => l.label),
         relationTypes: relationTypes.map((r) => r.name),
         propertyKeys: propKeys.map((p) => p.name),
-        nodeCount: Number(nodeCount.count),
+        entityCount: Number(entityCount.count),
         edgeCount: Number(edgeCount.count),
       };
     },

@@ -1,4 +1,4 @@
-import { nodeResolvers } from "./nodes.ts";
+import { entityResolvers } from "./entities.ts";
 import { connectionResolvers } from "./connections.ts";
 import { edgeResolvers } from "./edges.ts";
 import { registryResolvers } from "./registry.ts";
@@ -23,7 +23,7 @@ function mergeResolvers(
 }
 
 export const resolvers = mergeResolvers(
-  nodeResolvers,
+  entityResolvers,
   connectionResolvers,
   edgeResolvers,
   registryResolvers,

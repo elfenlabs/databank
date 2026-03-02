@@ -6,12 +6,12 @@ import {
   toVectorLiteral,
   type GraphContext,
 } from "../context.ts";
-import { resolveNode, resolveNodes } from "./shared.ts";
+import { resolveEntity, resolveEntities } from "./shared.ts";
 import { autoRegisterPropertyKeys, decrementPropertyKeys } from "./registry.ts";
 
-export const nodeResolvers = {
+export const entityResolvers = {
   Query: {
-    async nodes(
+    async entities(
       _: unknown,
       args: {
         search?: { query: string; threshold: number };
@@ -25,16 +25,16 @@ export const nodeResolvers = {
       const limit = args.first;
       const offset = args.after ? decodeCursor(args.after) + 1 : 0;
 
-      let query = ctx.db.selectFrom("nodes");
+      let query = ctx.db.selectFrom("entities");
 
       // Labels filter (cheap, indexed)
       if (args.labels && args.labels.length > 0) {
         query = query.where(
-          "nodes.id",
+          "entities.id",
           "in",
           ctx.db
-            .selectFrom("node_labels")
-            .select("node_id")
+            .selectFrom("entity_labels")
+            .select("entity_id")
             .where("label", "in", args.labels),
         );
       }
@@ -43,11 +43,11 @@ export const nodeResolvers = {
       if (args.properties && args.properties.length > 0) {
         for (const { key, value } of args.properties) {
           query = query.where(
-            "nodes.id",
+            "entities.id",
             "in",
             ctx.db
-              .selectFrom("node_properties")
-              .select("node_id")
+              .selectFrom("entity_properties")
+              .select("entity_id")
               .where("key", "=", key)
               .where("value", "=", value),
           );
@@ -73,28 +73,28 @@ export const nodeResolvers = {
       const totalCount = Number(countResult.count);
 
       // Fetch rows — order by similarity if searching, otherwise by recency
-      let dataQuery = query.selectAll("nodes");
+      let dataQuery = query.selectAll("entities");
       if (vecLiteral) {
         dataQuery = dataQuery.orderBy(
           sql`content_vector <=> ${vecLiteral}::vector`,
           "asc",
         );
       } else {
-        dataQuery = dataQuery.orderBy("nodes.created_at", "desc");
+        dataQuery = dataQuery.orderBy("entities.created_at", "desc");
       }
 
       const rows = await dataQuery.offset(offset).limit(limit).execute();
-      const nodes = await resolveNodes(ctx.db, rows);
-      return paginate(nodes, totalCount, offset, limit);
+      const entities = await resolveEntities(ctx.db, rows);
+      return paginate(entities, totalCount, offset, limit);
     },
   },
 
   Mutation: {
-    async createNode(
+    async createEntity(
       _: unknown,
       args: {
         input: {
-          text: string;
+          content: string;
           labels: string[];
           properties?: Record<string, string>;
         };
@@ -107,9 +107,9 @@ export const nodeResolvers = {
       const contentVector = toVectorLiteral(vectors[0]!);
       const labelVectors = vectors.slice(1);
 
-      // Insert node
-      const node = await ctx.db
-        .insertInto("nodes")
+      // Insert entity
+      const entity = await ctx.db
+        .insertInto("entities")
         .values({
           content: args.input.content,
           content_vector: sql`${contentVector}::vector`,
@@ -120,10 +120,10 @@ export const nodeResolvers = {
       // Insert labels
       if (args.input.labels.length > 0) {
         await ctx.db
-          .insertInto("node_labels")
+          .insertInto("entity_labels")
           .values(
             args.input.labels.map((label, i) => ({
-              node_id: node.id,
+              entity_id: entity.id,
               label,
               label_vector: sql`${toVectorLiteral(labelVectors[i]!)}::vector`,
             } as any)),
@@ -136,10 +136,10 @@ export const nodeResolvers = {
         const entries = Object.entries(args.input.properties);
         if (entries.length > 0) {
           await ctx.db
-            .insertInto("node_properties")
+            .insertInto("entity_properties")
             .values(
               entries.map(([key, value]) => ({
-                node_id: node.id,
+                entity_id: entity.id,
                 key,
                 value,
               })),
@@ -150,15 +150,15 @@ export const nodeResolvers = {
         }
       }
 
-      return resolveNode(ctx.db, node);
+      return resolveEntity(ctx.db, entity);
     },
 
-    async updateNode(
+    async updateEntity(
       _: unknown,
       args: {
         id: string;
         input: {
-          text?: string;
+          content?: string;
           labels?: string[];
           properties?: Record<string, string>;
         };
@@ -171,7 +171,7 @@ export const nodeResolvers = {
       if (input.content != null) {
         const contentVector = toVectorLiteral(await embed(input.content));
         await ctx.db
-          .updateTable("nodes")
+          .updateTable("entities")
           .set({
             content: input.content,
             content_vector: sql`${contentVector}::vector`,
@@ -183,17 +183,17 @@ export const nodeResolvers = {
       // Replace labels if provided
       if (input.labels != null) {
         await ctx.db
-          .deleteFrom("node_labels")
-          .where("node_id", "=", id)
+          .deleteFrom("entity_labels")
+          .where("entity_id", "=", id)
           .execute();
 
         if (input.labels.length > 0) {
           const labelVectors = await embedBatch(input.labels);
           await ctx.db
-            .insertInto("node_labels")
+            .insertInto("entity_labels")
             .values(
               input.labels.map((label, i) => ({
-                node_id: id,
+                entity_id: id,
                 label,
                 label_vector: sql`${toVectorLiteral(labelVectors[i]!)}::vector`,
               } as any)),
@@ -206,14 +206,14 @@ export const nodeResolvers = {
       if (input.properties != null) {
         // Get old keys for decrementing
         const oldProps = await ctx.db
-          .selectFrom("node_properties")
+          .selectFrom("entity_properties")
           .select("key")
-          .where("node_id", "=", id)
+          .where("entity_id", "=", id)
           .execute();
 
         await ctx.db
-          .deleteFrom("node_properties")
-          .where("node_id", "=", id)
+          .deleteFrom("entity_properties")
+          .where("entity_id", "=", id)
           .execute();
 
         // Decrement old keys
@@ -224,10 +224,10 @@ export const nodeResolvers = {
         const entries = Object.entries(input.properties);
         if (entries.length > 0) {
           await ctx.db
-            .insertInto("node_properties")
+            .insertInto("entity_properties")
             .values(
               entries.map(([key, value]) => ({
-                node_id: id,
+                entity_id: id,
                 key,
                 value,
               })),
@@ -239,17 +239,17 @@ export const nodeResolvers = {
       }
 
       const row = await ctx.db
-        .selectFrom("nodes")
+        .selectFrom("entities")
         .selectAll()
         .where("id", "=", id)
         .executeTakeFirstOrThrow();
 
-      return resolveNode(ctx.db, row);
+      return resolveEntity(ctx.db, row);
     },
 
-    async deleteNode(_: unknown, args: { id: string }, ctx: GraphContext) {
+    async deleteEntity(_: unknown, args: { id: string }, ctx: GraphContext) {
       const result = await ctx.db
-        .deleteFrom("nodes")
+        .deleteFrom("entities")
         .where("id", "=", args.id)
         .executeTakeFirst();
       return (result?.numDeletedRows ?? 0n) > 0n;

@@ -7,7 +7,7 @@ import {
   toVectorLiteral,
   type GraphContext,
 } from "../context.ts";
-import { resolveNode } from "./shared.ts";
+import { resolveEntity } from "./shared.ts";
 
 export const connectionResolvers = {
   Query: {
@@ -64,8 +64,8 @@ export const connectionResolvers = {
           targetIdCol,
           "in",
           ctx.db
-            .selectFrom("node_labels")
-            .select("node_id")
+            .selectFrom("entity_labels")
+            .select("entity_id")
             .where("label", "in", args.targetLabels),
         );
       }
@@ -81,7 +81,7 @@ export const connectionResolvers = {
           targetIdCol,
           "in",
           ctx.db
-            .selectFrom("nodes")
+            .selectFrom("entities")
             .select("id")
             .where(
               sql`1 - (content_vector <=> ${targetVecLiteral}::vector)`,
@@ -162,10 +162,10 @@ export const connectionResolvers = {
         .limit(limit)
         .execute();
 
-      // Resolve target nodes
+      // Resolve target entities
       const results = await Promise.all(
         edgeRows.map(async (edge, i) => {
-          const targetNodeId =
+          const targetEntityId =
             direction === "INCOMING"
               ? edge.source_id
               : direction === "OUTGOING"
@@ -174,15 +174,15 @@ export const connectionResolvers = {
                   ? edge.target_id
                   : edge.source_id;
 
-          const nodeRow = await ctx.db
-            .selectFrom("nodes")
+          const entityRow = await ctx.db
+            .selectFrom("entities")
             .selectAll()
-            .where("id", "=", targetNodeId)
+            .where("id", "=", targetEntityId)
             .executeTakeFirstOrThrow();
 
-          const resolved = await resolveNode(ctx.db, nodeRow);
+          const resolved = await resolveEntity(ctx.db, entityRow);
           return {
-            node: resolved,
+            entity: resolved,
             relationType: edge.relation_type,
             validFrom: edge.valid_from,
             validTo: edge.valid_to,
