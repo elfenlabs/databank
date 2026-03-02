@@ -103,34 +103,34 @@ describe("Databank E2E", () => {
   // 4. Filter by property
   test("entities filters by property", async () => {
     const { data, errors } = await gql<{
-      entities: { totalCount: number; edges: Array<{ entity: { id: string; content: string } }> };
+      entities: { totalCount: number; edges: Array<{ node: { id: string; content: string } }> };
     }>(`{
       entities(properties: [{ key: "name", value: "TypeScript" }], first: 10) {
         totalCount
-        edges { entity { id content } }
+        edges { node { id content } }
       }
     }`);
 
     expect(errors).toBeUndefined();
     expect(data!.entities.totalCount).toBe(1);
-    expect(data!.entities.edges[0]!.entity.id).toBe(entityIds.ts);
+    expect(data!.entities.edges[0]!.node.id).toBe(entityIds.ts);
   });
 
   // 5. Semantic search
   test("entities semantic search finds similar content", async () => {
     const { data, errors } = await gql<{
-      entities: { totalCount: number; edges: Array<{ entity: { id: string; labels: string[] } }> };
+      entities: { totalCount: number; edges: Array<{ node: { id: string; labels: string[] } }> };
     }>(`{
       entities(search: { query: "programming language", threshold: 0.3 }, first: 10) {
         totalCount
-        edges { entity { id labels } }
+        edges { node { id labels } }
       }
     }`);
 
     expect(errors).toBeUndefined();
     // Should find at least TS and Rust (programming languages)
     expect(data!.entities.totalCount).toBeGreaterThanOrEqual(2);
-    const ids = data!.entities.edges.map((e) => e.entity.id);
+    const ids = data!.entities.edges.map((e) => e.node.id);
     expect(ids).toContain(entityIds.ts);
     expect(ids).toContain(entityIds.rust);
   });
@@ -163,20 +163,20 @@ describe("Databank E2E", () => {
     const { data, errors } = await gql<{
       connections: {
         totalCount: number;
-        edges: Array<{ entity: { id: string }; relationType: string }>;
+        edges: Array<{ node: { id: string }; relationType: string }>;
       };
     }>(`
       query($nodeId: ID!) {
         connections(nodeId: $nodeId, direction: OUTGOING) {
           totalCount
-          edges { entity { id } relationType }
+          edges { node { id } relationType }
         }
       }
     `, { nodeId: entityIds.ts });
 
     expect(errors).toBeUndefined();
     expect(data!.connections.totalCount).toBe(1);
-    expect(data!.connections.edges[0]!.entity.id).toBe(entityIds.pg);
+    expect(data!.connections.edges[0]!.node.id).toBe(entityIds.pg);
     expect(data!.connections.edges[0]!.relationType).toBe("RUNS_ON");
   });
 
@@ -229,12 +229,12 @@ describe("Databank E2E", () => {
   // 11. Orphans — Rust has no edges
   test("orphans returns unconnected entities", async () => {
     const { data, errors } = await gql<{
-      orphans: { totalCount: number; edges: Array<{ entity: { id: string } }> };
-    }>(`{ orphans { totalCount edges { entity { id } } } }`);
+      orphans: { totalCount: number; edges: Array<{ node: { id: string } }> };
+    }>(`{ orphans { totalCount edges { node { id } } } }`);
 
     expect(errors).toBeUndefined();
     expect(data!.orphans.totalCount).toBeGreaterThanOrEqual(1);
-    const ids = data!.orphans.edges.map((e) => e.entity.id);
+    const ids = data!.orphans.edges.map((e) => e.node.id);
     expect(ids).toContain(entityIds.rust);
     // TS and PG have edges, so they should NOT be orphans
     expect(ids).not.toContain(entityIds.ts);

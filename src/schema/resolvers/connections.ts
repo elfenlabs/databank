@@ -182,7 +182,7 @@ export const connectionResolvers = {
 
           const resolved = await resolveEntity(ctx.db, entityRow);
           return {
-            entity: resolved,
+            node: resolved,
             relationType: edge.relation_type,
             validFrom: edge.valid_from,
             validTo: edge.valid_to,

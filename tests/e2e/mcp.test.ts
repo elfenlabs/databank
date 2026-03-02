@@ -59,14 +59,12 @@ describe("MCP Server E2E", () => {
     const sdl = content[0]!.text;
     expect(sdl).toContain("type Query");
     expect(sdl).toContain("type Mutation");
-    expect(sdl).toContain("entities");
-    expect(sdl).toContain("SemanticSearch");
-    expect(sdl).toContain("PropertyFilter");
-    expect(sdl).toContain("createEntity");
-    expect(sdl).toContain("connections");
-    expect(sdl).toContain("RegistryEntry");
-    expect(sdl).toContain("relationKeys");
-    expect(sdl).toContain("propertyKeys");
+    expect(sdl).toContain("interface Node");
+    expect(sdl).toContain("type Entity implements Node");
+    expect(sdl).toContain("type Edge implements Node");
+    expect(sdl).toContain("EntityConnection");
+    expect(sdl).toContain("ConnectionConnection");
+    expect(sdl).toContain("RegistryConnection");
   });
 
   test("databank_query executes a GraphQL query", async () => {
@@ -111,7 +109,7 @@ describe("MCP Server E2E", () => {
         query: `query($props: [PropertyFilter!], $first: Int!) {
           entities(properties: $props, first: $first) {
             totalCount
-            edges { entity { id content } }
+            edges { node { id content } }
           }
         }`,
         variables: { props: [{ key: "source", value: "mcp-e2e" }], first: 10 },

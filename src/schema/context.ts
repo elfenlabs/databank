@@ -31,8 +31,8 @@ export function paginate<T>(
   offset: number,
   limit: number,
 ) {
-  const edges = rows.map((entity, i) => ({
-    entity,
+  const edges = rows.map((node, i) => ({
+    node,
     cursor: encodeCursor(offset + i),
   }));
 
