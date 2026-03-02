@@ -98,6 +98,45 @@ See [`project.md`](project.md) for the full PRD, schema definitions, and example
 | `EMBED_URL` | `http://localhost:8100` | URL of the embedding sidecar |
 | `PORT` | `4000` | GraphQL server port |
 | `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | HuggingFace model for the embedder |
+| `DATABANK_URL` | `http://localhost:4000/graphql` | GraphQL endpoint (used by MCP server) |
+
+## MCP
+
+Databank ships with an [MCP](https://modelcontextprotocol.io) server that lets any MCP-compatible agent (Claude Desktop, Cursor, Windsurf, etc.) interact with the knowledge graph. It exposes two tools:
+
+| Tool | Description |
+| --- | --- |
+| `databank_schema` | Returns the full GraphQL SDL so the agent learns the API |
+| `databank_query` | Executes a raw GraphQL query/mutation against Databank |
+
+The MCP server is a thin stdio adapter — it forwards GraphQL operations to a running Databank instance via HTTP.
+
+```bash
+# Start Databank first
+bun run dev
+
+# In another terminal, test the MCP server
+bun run mcp
+```
+
+### Claude Desktop / Cursor config
+
+Add to your MCP configuration (e.g. `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "databank": {
+      "command": "bun",
+      "args": ["run", "mcp"],
+      "cwd": "/path/to/databank",
+      "env": {
+        "DATABANK_URL": "http://localhost:4000/graphql"
+      }
+    }
+  }
+}
+```
 
 ## License
 

@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "bun run --watch src/index.ts",
+    "mcp": "bun run src/mcp.ts",
     "migrate": "dbmate --no-dump-schema up",
     "migrate:new": "dbmate new",
     "test": "bun test tests/unit",
@@ -20,6 +21,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "graphql": "^16.13.0",
     "graphql-yoga": "^5.18.0",
     "kysely": "^0.28.11",
