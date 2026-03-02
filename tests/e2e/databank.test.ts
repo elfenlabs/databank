@@ -29,14 +29,15 @@ describe("Databank E2E", () => {
   // 1. Schema query — empty DB
   test("schema returns empty counts", async () => {
     const { data, errors } = await gql<{
-      schema: { nodeCount: number; edgeCount: number; labels: string[]; relationTypes: string[] };
-    }>(`{ schema { nodeCount edgeCount labels relationTypes } }`);
+      schema: { nodeCount: number; edgeCount: number; labels: string[]; relationTypes: string[]; propertyKeys: string[] };
+    }>(`{ schema { nodeCount edgeCount labels relationTypes propertyKeys } }`);
 
     expect(errors).toBeUndefined();
     expect(data!.schema.nodeCount).toBe(0);
     expect(data!.schema.edgeCount).toBe(0);
     expect(data!.schema.labels).toEqual([]);
     expect(data!.schema.relationTypes).toEqual([]);
+    expect(data!.schema.propertyKeys).toEqual([]);
   });
 
   // 2. Create nodes
@@ -80,7 +81,26 @@ describe("Databank E2E", () => {
     nodeIds.pg = data!.pg.id;
   });
 
-  // 3. EXACT search by property
+  // 3. Property keys auto-registered
+  test("propertyKeys auto-registered from createNode", async () => {
+    const { data, errors } = await gql<{
+      propertyKeys: { totalCount: number; edges: Array<{ node: { name: string; usageCount: number } }> };
+    }>(`{ propertyKeys { totalCount edges { node { name usageCount } } } }`);
+
+    expect(errors).toBeUndefined();
+    expect(data!.propertyKeys.totalCount).toBeGreaterThanOrEqual(2);
+    const keys = data!.propertyKeys.edges.map((e) => e.node.name);
+    expect(keys).toContain("name");
+    expect(keys).toContain("paradigm");
+
+    // "name" used 3 times (TS, Rust, PG), "paradigm" used 1 time
+    const nameEntry = data!.propertyKeys.edges.find((e) => e.node.name === "name");
+    expect(nameEntry!.node.usageCount).toBe(3);
+    const paradigmEntry = data!.propertyKeys.edges.find((e) => e.node.name === "paradigm");
+    expect(paradigmEntry!.node.usageCount).toBe(1);
+  });
+
+  // 4. EXACT search by property
   test("searchNodes EXACT finds by property", async () => {
     const { data, errors } = await gql<{
       searchNodes: { totalCount: number; edges: Array<{ node: { id: string; content: string } }> };
@@ -96,7 +116,7 @@ describe("Databank E2E", () => {
     expect(data!.searchNodes.edges[0]!.node.id).toBe(nodeIds.ts);
   });
 
-  // 4. SEMANTIC search
+  // 5. SEMANTIC search
   test("searchNodes SEMANTIC finds similar content", async () => {
     const { data, errors } = await gql<{
       searchNodes: { totalCount: number; edges: Array<{ node: { id: string; labels: string[] } }> };
@@ -115,7 +135,7 @@ describe("Databank E2E", () => {
     expect(ids).toContain(nodeIds.rust);
   });
 
-  // 5. Create edge + auto-register relation
+  // 6. Create edge + auto-register relation
   test("createEdge auto-registers relation", async () => {
     const { data, errors } = await gql<{
       createEdge: { id: string; sourceId: string; targetId: string; relationType: string };
@@ -138,7 +158,7 @@ describe("Databank E2E", () => {
     edgeId = data!.createEdge.id;
   });
 
-  // 6. Connections query
+  // 7. Connections query
   test("connections returns outgoing edges", async () => {
     const { data, errors } = await gql<{
       connections: {
@@ -160,19 +180,53 @@ describe("Databank E2E", () => {
     expect(data!.connections.edges[0]!.relationType).toBe("RUNS_ON");
   });
 
-  // 7. Relations list
-  test("relations lists registered types with usage counts", async () => {
+  // 8. Relation keys list
+  test("relationKeys lists registered types with usage counts", async () => {
     const { data, errors } = await gql<{
-      relations: Array<{ name: string; usageCount: number }>;
-    }>(`{ relations { name usageCount } }`);
+      relationKeys: { edges: Array<{ node: { name: string; usageCount: number } }> };
+    }>(`{ relationKeys { edges { node { name usageCount } } } }`);
 
     expect(errors).toBeUndefined();
-    const runsOn = data!.relations.find((r) => r.name === "RUNS_ON");
+    const runsOn = data!.relationKeys.edges.find((e) => e.node.name === "RUNS_ON");
     expect(runsOn).toBeTruthy();
-    expect(runsOn!.usageCount).toBe(1);
+    expect(runsOn!.node.usageCount).toBe(1);
   });
 
-  // 8. Orphans — Rust has no edges
+  // 9. Register property with description
+  test("registerProperty creates entry with description", async () => {
+    const { data, errors } = await gql<{
+      registerProperty: { name: string; description: string; usageCount: number };
+    }>(`
+      mutation {
+        registerProperty(name: "version", description: "The version number of the software") {
+          name description usageCount
+        }
+      }
+    `);
+
+    expect(errors).toBeUndefined();
+    expect(data!.registerProperty.name).toBe("version");
+    expect(data!.registerProperty.description).toBe("The version number of the software");
+  });
+
+  // 10. Register relation with description
+  test("registerRelation creates entry with description", async () => {
+    const { data, errors } = await gql<{
+      registerRelation: { name: string; description: string };
+    }>(`
+      mutation {
+        registerRelation(name: "DEPENDS_ON", description: "A dependency relationship between software components") {
+          name description
+        }
+      }
+    `);
+
+    expect(errors).toBeUndefined();
+    expect(data!.registerRelation.name).toBe("DEPENDS_ON");
+    expect(data!.registerRelation.description).toBe("A dependency relationship between software components");
+  });
+
+  // 11. Orphans — Rust has no edges
   test("orphans returns unconnected nodes", async () => {
     const { data, errors } = await gql<{
       orphans: { totalCount: number; edges: Array<{ node: { id: string } }> };
@@ -187,7 +241,7 @@ describe("Databank E2E", () => {
     expect(ids).not.toContain(nodeIds.pg);
   });
 
-  // 9. Delete edge + node
+  // 12. Delete edge + node
   test("deleteEdge and deleteNode work", async () => {
     // Delete the edge
     const delEdge = await gql<{ deleteEdge: boolean }>(`

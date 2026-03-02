@@ -3,6 +3,16 @@
 -- Relation registry (must come first — edges reference it)
 CREATE TABLE relations (
   name            TEXT PRIMARY KEY,
+  description     TEXT,
+  name_vector     vector(384),
+  usage_count     INT NOT NULL DEFAULT 0,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Property key registry (mirrors relations)
+CREATE TABLE property_keys (
+  name            TEXT PRIMARY KEY,
+  description     TEXT,
   name_vector     vector(384),
   usage_count     INT NOT NULL DEFAULT 0,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -53,4 +63,5 @@ DROP TABLE IF EXISTS edges;
 DROP TABLE IF EXISTS node_properties;
 DROP TABLE IF EXISTS node_labels;
 DROP TABLE IF EXISTS nodes;
+DROP TABLE IF EXISTS property_keys;
 DROP TABLE IF EXISTS relations;

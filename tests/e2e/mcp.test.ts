@@ -62,6 +62,9 @@ describe("MCP Server E2E", () => {
     expect(sdl).toContain("searchNodes");
     expect(sdl).toContain("createNode");
     expect(sdl).toContain("connections");
+    expect(sdl).toContain("RegistryEntry");
+    expect(sdl).toContain("relationKeys");
+    expect(sdl).toContain("propertyKeys");
   });
 
   test("databank_query executes a GraphQL query", async () => {

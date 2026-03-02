@@ -9,6 +9,15 @@ type Vector = string;
 
 export interface RelationsTable {
   name: string;
+  description: string | null;
+  name_vector: Vector | null;
+  usage_count: ColumnType<number, number | undefined, number>;
+  created_at: ColumnType<Date, Date | undefined, never>;
+}
+
+export interface PropertyKeysTable {
+  name: string;
+  description: string | null;
   name_vector: Vector | null;
   usage_count: ColumnType<number, number | undefined, number>;
   created_at: ColumnType<Date, Date | undefined, never>;
@@ -52,6 +61,7 @@ export interface EdgesTable {
 
 export interface Database {
   relations: RelationsTable;
+  property_keys: PropertyKeysTable;
   nodes: NodesTable;
   node_labels: NodeLabelsTable;
   node_properties: NodePropertiesTable;

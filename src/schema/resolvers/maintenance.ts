@@ -105,7 +105,7 @@ export const maintenanceResolvers = {
     },
 
     async schema(_: unknown, __: unknown, ctx: GraphContext) {
-      const [labels, relationTypes, nodeCount, edgeCount] = await Promise.all([
+      const [labels, relationTypes, propKeys, nodeCount, edgeCount] = await Promise.all([
         ctx.db
           .selectFrom("node_labels")
           .select("label")
@@ -113,6 +113,10 @@ export const maintenanceResolvers = {
           .execute(),
         ctx.db
           .selectFrom("relations")
+          .select("name")
+          .execute(),
+        ctx.db
+          .selectFrom("property_keys")
           .select("name")
           .execute(),
         ctx.db
@@ -128,6 +132,7 @@ export const maintenanceResolvers = {
       return {
         labels: labels.map((l) => l.label),
         relationTypes: relationTypes.map((r) => r.name),
+        propertyKeys: propKeys.map((p) => p.name),
         nodeCount: Number(nodeCount.count),
         edgeCount: Number(edgeCount.count),
       };

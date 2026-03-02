@@ -8,6 +8,7 @@ import {
   type GraphContext,
 } from "../context.ts";
 import { resolveNode, resolveNodes } from "./shared.ts";
+import { autoRegisterPropertyKeys, decrementPropertyKeys } from "./registry.ts";
 
 export const nodeResolvers = {
   Query: {
@@ -150,7 +151,7 @@ export const nodeResolvers = {
           .execute();
       }
 
-      // Insert properties
+      // Insert properties + auto-register keys
       if (args.input.properties) {
         const entries = Object.entries(args.input.properties);
         if (entries.length > 0) {
@@ -164,6 +165,8 @@ export const nodeResolvers = {
               })),
             )
             .execute();
+
+          await autoRegisterPropertyKeys(ctx, entries.map(([k]) => k));
         }
       }
 
@@ -221,10 +224,22 @@ export const nodeResolvers = {
 
       // Replace properties if provided
       if (input.properties != null) {
+        // Get old keys for decrementing
+        const oldProps = await ctx.db
+          .selectFrom("node_properties")
+          .select("key")
+          .where("node_id", "=", id)
+          .execute();
+
         await ctx.db
           .deleteFrom("node_properties")
           .where("node_id", "=", id)
           .execute();
+
+        // Decrement old keys
+        if (oldProps.length > 0) {
+          await decrementPropertyKeys(ctx, oldProps.map((p) => p.key));
+        }
 
         const entries = Object.entries(input.properties);
         if (entries.length > 0) {
@@ -238,6 +253,8 @@ export const nodeResolvers = {
               })),
             )
             .execute();
+
+          await autoRegisterPropertyKeys(ctx, entries.map(([k]) => k));
         }
       }
 

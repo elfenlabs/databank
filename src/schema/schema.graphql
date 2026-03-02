@@ -103,11 +103,24 @@ type Edge {
   createdAt: DateTime!
 }
 
-# --- Relation Registry ---
-type Relation {
+# --- Registry Types (shared by relation keys + property keys) ---
+type RegistryEntry {
   name: String!
+  description: String
   usageCount: Int!
   createdAt: DateTime!
+}
+
+type RegistryEdge {
+  node: RegistryEntry!
+  score: Float!
+  cursor: String!
+}
+
+type RegistryResult {
+  edges: [RegistryEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
 }
 
 # --- Maintenance ---
@@ -120,6 +133,7 @@ type SimilarPair {
 type SchemaInfo {
   labels: [String!]!
   relationTypes: [String!]!
+  propertyKeys: [String!]!
   nodeCount: Int!
   edgeCount: Int!
 }
@@ -146,7 +160,22 @@ type Query {
     after: String
   ): ConnectionResult!
 
-  relations: [Relation!]!
+  relationKeys(
+    match: MatchType
+    value: String
+    threshold: Float
+    first: Int = 20
+    after: String
+  ): RegistryResult!
+
+  propertyKeys(
+    match: MatchType
+    value: String
+    threshold: Float
+    first: Int = 20
+    after: String
+  ): RegistryResult!
+
   orphans(first: Int = 20, after: String): NodeResult!
   similarPairs(threshold: Float!): [SimilarPair!]!
   schema: SchemaInfo!
@@ -161,7 +190,11 @@ type Mutation {
   createEdge(input: CreateEdgeInput!): Edge!
   deleteEdge(id: ID!): Boolean!
 
-  registerRelation(name: String!): Relation!
-  mergeRelations(sources: [String!]!, target: String!): Relation!
+  registerRelation(name: String!, description: String): RegistryEntry!
+  mergeRelations(sources: [String!]!, target: String!): RegistryEntry!
   deleteRelation(name: String!): Boolean!
+
+  registerProperty(name: String!, description: String): RegistryEntry!
+  mergeProperties(sources: [String!]!, target: String!): RegistryEntry!
+  deleteProperty(name: String!): Boolean!
 }
