@@ -158,26 +158,27 @@ describe("Databank E2E", () => {
     edgeId = data!.createEdge.id;
   });
 
-  // 7. Connections query
-  test("connections returns outgoing edges", async () => {
+  // 7. Relations query
+  test("relations returns outgoing edges with full edge object", async () => {
     const { data, errors } = await gql<{
-      connections: {
+      relations: {
         totalCount: number;
-        edges: Array<{ node: { id: string }; relationType: string }>;
+        edges: Array<{ node: { id: string }; edge: { id: string; relationType: string } }>;
       };
     }>(`
-      query($nodeId: ID!) {
-        connections(nodeId: $nodeId, direction: OUTGOING) {
+      query($entityId: ID!) {
+        relations(entityId: $entityId, direction: OUTGOING) {
           totalCount
-          edges { node { id } relationType }
+          edges { node { id } edge { id relationType } }
         }
       }
-    `, { nodeId: entityIds.ts });
+    `, { entityId: entityIds.ts });
 
     expect(errors).toBeUndefined();
-    expect(data!.connections.totalCount).toBe(1);
-    expect(data!.connections.edges[0]!.node.id).toBe(entityIds.pg);
-    expect(data!.connections.edges[0]!.relationType).toBe("RUNS_ON");
+    expect(data!.relations.totalCount).toBe(1);
+    expect(data!.relations.edges[0]!.node.id).toBe(entityIds.pg);
+    expect(data!.relations.edges[0]!.edge.relationType).toBe("RUNS_ON");
+    expect(data!.relations.edges[0]!.edge.id).toBeTruthy();
   });
 
   // 8. Relation keys list

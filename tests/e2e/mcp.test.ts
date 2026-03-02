@@ -63,7 +63,7 @@ describe("MCP Server E2E", () => {
     expect(sdl).toContain("type Entity implements Node");
     expect(sdl).toContain("type Edge implements Node");
     expect(sdl).toContain("EntityConnection");
-    expect(sdl).toContain("ConnectionConnection");
+    expect(sdl).toContain("RelationConnection");
     expect(sdl).toContain("RegistryConnection");
   });
 

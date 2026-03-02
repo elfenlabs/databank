@@ -59,17 +59,16 @@ type Entity implements Node {
   createdAt: DateTime!
 }
 
-# --- Connection Types (Relay-style pagination) ---
-type ConnectionEdge {
+# --- Relation Types (traversal results) ---
+type RelationEdge {
   node: Entity!
-  relationType: String!
-  validFrom: DateTime
-  validTo: DateTime
+  edge: Edge!
+  score: Float
   cursor: String!
 }
 
-type ConnectionConnection {
-  edges: [ConnectionEdge!]!
+type RelationConnection {
+  edges: [RelationEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
 }
@@ -149,8 +148,8 @@ type Query {
     after: String
   ): EntityConnection!
 
-  connections(
-    nodeId: ID!
+  relations(
+    entityId: ID!
     relationType: String
     targetLabels: [String!]
     targetSearch: SemanticSearch
@@ -158,7 +157,7 @@ type Query {
     temporal: TemporalFilter
     first: Int = 10
     after: String
-  ): ConnectionConnection!
+  ): RelationConnection!
 
   relationKeys(
     match: MatchType

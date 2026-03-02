@@ -9,12 +9,26 @@ import {
 } from "../context.ts";
 import { resolveEntity } from "./shared.ts";
 
-export const connectionResolvers = {
+/** Map a raw edges row to a GraphQL Edge object. */
+function toEdge(row: any) {
+  return {
+    id: row.id,
+    sourceId: row.source_id,
+    targetId: row.target_id,
+    relationType: row.relation_type,
+    properties: row.properties,
+    validFrom: row.valid_from,
+    validTo: row.valid_to,
+    createdAt: row.created_at,
+  };
+}
+
+export const relationResolvers = {
   Query: {
-    async connections(
+    async relations(
       _: unknown,
       args: {
-        nodeId: string;
+        entityId: string;
         relationType?: string;
         targetLabels?: string[];
         targetSearch?: { query: string; threshold: number };
@@ -39,14 +53,14 @@ export const connectionResolvers = {
 
       // Direction filter
       if (direction === "OUTGOING") {
-        edgeQuery = edgeQuery.where("source_id", "=", args.nodeId);
+        edgeQuery = edgeQuery.where("source_id", "=", args.entityId);
       } else if (direction === "INCOMING") {
-        edgeQuery = edgeQuery.where("target_id", "=", args.nodeId);
+        edgeQuery = edgeQuery.where("target_id", "=", args.entityId);
       } else {
         edgeQuery = edgeQuery.where((eb) =>
           eb.or([
-            eb("source_id", "=", args.nodeId),
-            eb("target_id", "=", args.nodeId),
+            eb("source_id", "=", args.entityId),
+            eb("target_id", "=", args.entityId),
           ]),
         );
       }
@@ -162,17 +176,17 @@ export const connectionResolvers = {
         .limit(limit)
         .execute();
 
-      // Resolve target entities
+      // Resolve target entities + build full edge objects
       const results = await Promise.all(
-        edgeRows.map(async (edge, i) => {
+        edgeRows.map(async (edgeRow, i) => {
           const targetEntityId =
             direction === "INCOMING"
-              ? edge.source_id
+              ? edgeRow.source_id
               : direction === "OUTGOING"
-                ? edge.target_id
-                : edge.source_id === args.nodeId
-                  ? edge.target_id
-                  : edge.source_id;
+                ? edgeRow.target_id
+                : edgeRow.source_id === args.entityId
+                  ? edgeRow.target_id
+                  : edgeRow.source_id;
 
           const entityRow = await ctx.db
             .selectFrom("entities")
@@ -181,11 +195,24 @@ export const connectionResolvers = {
             .executeTakeFirstOrThrow();
 
           const resolved = await resolveEntity(ctx.db, entityRow);
+
+          // Compute score if semantic search was used
+          let score: number | null = null;
+          if (targetVecLiteral) {
+            const simResult = await ctx.db
+              .selectFrom("entities")
+              .select(
+                sql<number>`1 - (content_vector <=> ${targetVecLiteral}::vector)`.as("sim"),
+              )
+              .where("id", "=", targetEntityId)
+              .executeTakeFirstOrThrow();
+            score = simResult.sim;
+          }
+
           return {
             node: resolved,
-            relationType: edge.relation_type,
-            validFrom: edge.valid_from,
-            validTo: edge.valid_to,
+            edge: toEdge(edgeRow),
+            score,
             cursor: encodeCursor(offset + i),
           };
         }),
