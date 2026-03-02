@@ -2,21 +2,24 @@
 # Usage: docker compose -f tests/e2e/docker-compose.yml up -d --wait
 
 services:
-  postgres:
-    image: pgvector/pgvector:pg17
+  databank:
+    build:
+      context: ../..
+      dockerfile: infra/databank/Dockerfile
     environment:
-      POSTGRES_DB: databank_test
-      POSTGRES_USER: databank
-      POSTGRES_PASSWORD: databank
+      EMBED_URL: http://embedder:8100
+      PORT: "4000"
     ports:
-      - "15432:5432"
-    volumes:
-      - ../../infra/pg/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - "14000:4000"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U databank"]
-      interval: 3s
-      timeout: 2s
-      retries: 10
+      test: ["CMD-SHELL", "curl -sf http://localhost:4000/graphql -o /dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 30s
+    depends_on:
+      embedder:
+        condition: service_healthy
 
   embedder:
     build:
