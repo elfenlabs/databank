@@ -30,9 +30,11 @@ export function paginate<T>(
   totalCount: number,
   offset: number,
   limit: number,
+  scores?: (number | null)[],
 ) {
   const edges = rows.map((node, i) => ({
     node,
+    score: scores?.[i] ?? null,
     cursor: encodeCursor(offset + i),
   }));
 

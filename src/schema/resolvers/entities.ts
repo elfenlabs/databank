@@ -75,17 +75,24 @@ export const entityResolvers = {
       // Fetch rows — order by similarity if searching, otherwise by recency
       let dataQuery = query.selectAll("entities");
       if (vecLiteral) {
-        dataQuery = dataQuery.orderBy(
-          sql`content_vector <=> ${vecLiteral}::vector`,
-          "asc",
-        );
+        dataQuery = dataQuery
+          .select(
+            sql<number>`1 - (content_vector <=> ${vecLiteral}::vector)`.as("score"),
+          )
+          .orderBy(
+            sql`content_vector <=> ${vecLiteral}::vector`,
+            "asc",
+          ) as any;
       } else {
         dataQuery = dataQuery.orderBy("entities.created_at", "desc");
       }
 
       const rows = await dataQuery.offset(offset).limit(limit).execute();
+      const scores = vecLiteral
+        ? rows.map((r: any) => r.score as number)
+        : undefined;
       const entities = await resolveEntities(ctx.db, rows);
-      return paginate(entities, totalCount, offset, limit);
+      return paginate(entities, totalCount, offset, limit, scores);
     },
   },
 

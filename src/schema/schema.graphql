@@ -75,6 +75,7 @@ type RelationConnection {
 
 type EntityEdge {
   node: Entity!
+  score: Float
   cursor: String!
 }
 
