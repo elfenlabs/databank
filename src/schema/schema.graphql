@@ -2,30 +2,18 @@ scalar DateTime
 scalar JSON
 
 # --- Enums ---
-enum MatchType { EXACT SEMANTIC }
 enum Direction { OUTGOING INCOMING BOTH }
 enum TemporalMode { AT WITHIN OVERLAPS }
-enum TargetField { CONTENT LABEL }
+enum MatchType { EXACT SEMANTIC }
 
 # --- Inputs ---
-input RelationFilter {
-  match: MatchType!
-  value: String!
-  threshold: Float
-}
-
-input TargetFilter {
-  on: TargetField!
-  value: String!
-  threshold: Float!
-}
-
 input TemporalFilter {
   mode: TemporalMode!
   at: DateTime
   from: DateTime
   to: DateTime
 }
+
 
 input CreateNodeInput {
   text: String!
@@ -71,7 +59,6 @@ type Node {
 type ConnectionEdge {
   node: Node!
   relationType: String!
-  relationScore: Float!
   validFrom: DateTime
   validTo: DateTime
   cursor: String!
@@ -160,8 +147,9 @@ type Query {
 
   connections(
     nodeId: ID!
-    relation: RelationFilter
-    target: TargetFilter
+    relationType: String
+    targetLabels: [String!]
+    targetSearch: SemanticSearch
     direction: Direction = OUTGOING
     temporal: TemporalFilter
     first: Int = 10

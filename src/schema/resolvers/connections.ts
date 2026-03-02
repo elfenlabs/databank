@@ -15,12 +15,9 @@ export const connectionResolvers = {
       _: unknown,
       args: {
         nodeId: string;
-        relation?: {
-          match: "EXACT" | "SEMANTIC";
-          value: string;
-          threshold?: number;
-        };
-        target?: { on: "CONTENT" | "LABEL"; value: string; threshold: number };
+        relationType?: string;
+        targetLabels?: string[];
+        targetSearch?: { query: string; threshold: number };
         direction?: "OUTGOING" | "INCOMING" | "BOTH";
         temporal?: {
           mode: "AT" | "WITHIN" | "OVERLAPS";
@@ -37,55 +34,7 @@ export const connectionResolvers = {
       const offset = args.after ? decodeCursor(args.after) + 1 : 0;
       const direction = args.direction ?? "OUTGOING";
 
-      // Step 1 — Resolve relation types
-      let matchedRelations: Array<{ name: string; score: number }> = [];
-
-      if (args.relation) {
-        if (args.relation.match === "EXACT") {
-          matchedRelations = [{ name: args.relation.value, score: 1.0 }];
-        } else {
-          // SEMANTIC — waterfall search on relations table
-          if (args.relation.threshold == null) {
-            throw new GraphQLError("'threshold' is required for SEMANTIC relation match", { extensions: { code: "BAD_REQUEST" } });
-          }
-
-          const relVector = await embed(args.relation.value);
-          const vecLiteral = toVectorLiteral(relVector);
-
-          const relRows = await ctx.db
-            .selectFrom("relations")
-            .select([
-              "name",
-              sql<number>`1 - (name_vector <=> ${vecLiteral}::vector)`.as(
-                "score",
-              ),
-            ])
-            .where(
-              sql`1 - (name_vector <=> ${vecLiteral}::vector)`,
-              ">=",
-              args.relation.threshold,
-            )
-            .orderBy("score", "desc")
-            .execute();
-
-          matchedRelations = relRows;
-        }
-
-        if (matchedRelations.length === 0) {
-          return {
-            edges: [],
-            pageInfo: {
-              hasNextPage: false,
-              hasPreviousPage: false,
-              startCursor: null,
-              endCursor: null,
-            },
-            totalCount: 0,
-          };
-        }
-      }
-
-      // Step 2 — Build edge query with direction + temporal filters
+      // Build edge query
       let edgeQuery = ctx.db.selectFrom("edges").selectAll("edges");
 
       // Direction filter
@@ -94,7 +43,6 @@ export const connectionResolvers = {
       } else if (direction === "INCOMING") {
         edgeQuery = edgeQuery.where("target_id", "=", args.nodeId);
       } else {
-        // BOTH
         edgeQuery = edgeQuery.where((eb) =>
           eb.or([
             eb("source_id", "=", args.nodeId),
@@ -103,12 +51,43 @@ export const connectionResolvers = {
         );
       }
 
-      // Relation filter
-      if (matchedRelations.length > 0) {
+      // Relation type filter (exact)
+      if (args.relationType) {
+        edgeQuery = edgeQuery.where("relation_type", "=", args.relationType);
+      }
+
+      // Target labels filter — only include edges whose target has matching labels
+      if (args.targetLabels && args.targetLabels.length > 0) {
+        const targetIdCol =
+          direction === "INCOMING" ? "source_id" : "target_id";
         edgeQuery = edgeQuery.where(
-          "relation_type",
+          targetIdCol,
           "in",
-          matchedRelations.map((r) => r.name),
+          ctx.db
+            .selectFrom("node_labels")
+            .select("node_id")
+            .where("label", "in", args.targetLabels),
+        );
+      }
+
+      // Target semantic search — only include edges whose target matches
+      let targetVecLiteral: string | null = null;
+      if (args.targetSearch) {
+        const targetVector = await embed(args.targetSearch.query);
+        targetVecLiteral = toVectorLiteral(targetVector);
+        const targetIdCol =
+          direction === "INCOMING" ? "source_id" : "target_id";
+        edgeQuery = edgeQuery.where(
+          targetIdCol,
+          "in",
+          ctx.db
+            .selectFrom("nodes")
+            .select("id")
+            .where(
+              sql`1 - (content_vector <=> ${targetVecLiteral}::vector)`,
+              ">=",
+              args.targetSearch.threshold,
+            ),
         );
       }
 
@@ -117,8 +96,10 @@ export const connectionResolvers = {
         const { mode, at, from, to } = args.temporal;
 
         if (mode === "AT") {
-          if (!at) throw new GraphQLError("'at' is required for AT temporal mode", { extensions: { code: "BAD_REQUEST" } });
-          // Facts (valid_from IS NULL) always match
+          if (!at)
+            throw new GraphQLError("'at' is required for AT temporal mode", {
+              extensions: { code: "BAD_REQUEST" },
+            });
           edgeQuery = edgeQuery.where((eb) =>
             eb.or([
               eb("valid_from", "is", null),
@@ -132,7 +113,11 @@ export const connectionResolvers = {
             ]),
           );
         } else if (mode === "WITHIN") {
-          if (!from || !to) throw new GraphQLError("'from' and 'to' are required for WITHIN temporal mode", { extensions: { code: "BAD_REQUEST" } });
+          if (!from || !to)
+            throw new GraphQLError(
+              "'from' and 'to' are required for WITHIN temporal mode",
+              { extensions: { code: "BAD_REQUEST" } },
+            );
           edgeQuery = edgeQuery.where((eb) =>
             eb.or([
               eb("valid_from", "is", null),
@@ -143,7 +128,11 @@ export const connectionResolvers = {
             ]),
           );
         } else if (mode === "OVERLAPS") {
-          if (!from || !to) throw new GraphQLError("'from' and 'to' are required for OVERLAPS temporal mode", { extensions: { code: "BAD_REQUEST" } });
+          if (!from || !to)
+            throw new GraphQLError(
+              "'from' and 'to' are required for OVERLAPS temporal mode",
+              { extensions: { code: "BAD_REQUEST" } },
+            );
           edgeQuery = edgeQuery.where((eb) =>
             eb.or([
               eb("valid_from", "is", null),
@@ -159,7 +148,7 @@ export const connectionResolvers = {
         }
       }
 
-      // Get total count
+      // Count
       const countResult = await edgeQuery
         .clearSelect()
         .select(sql<number>`count(*)`.as("count"))
@@ -173,84 +162,34 @@ export const connectionResolvers = {
         .limit(limit)
         .execute();
 
-      // Step 3 — Build relation score map
-      const scoreMap = new Map(matchedRelations.map((r) => [r.name, r.score]));
-
-      // Step 4 — Resolve target nodes + optional target filter
-      const results: Array<{
-        node: Awaited<ReturnType<typeof resolveNode>>;
-        relationType: string;
-        relationScore: number;
-        validFrom: Date | null;
-        validTo: Date | null;
-        cursor: string;
-      }> = [];
-
-      let targetVector: number[] | null = null;
-      if (args.target) {
-        targetVector = await embed(args.target.value);
-      }
-
-      for (let i = 0; i < edgeRows.length; i++) {
-        const edge = edgeRows[i]!;
-        // Determine target node ID based on direction
-        const targetNodeId =
-          direction === "INCOMING"
-            ? edge.source_id
-            : direction === "OUTGOING"
-              ? edge.target_id
-              : edge.source_id === args.nodeId
+      // Resolve target nodes
+      const results = await Promise.all(
+        edgeRows.map(async (edge, i) => {
+          const targetNodeId =
+            direction === "INCOMING"
+              ? edge.source_id
+              : direction === "OUTGOING"
                 ? edge.target_id
-                : edge.source_id;
+                : edge.source_id === args.nodeId
+                  ? edge.target_id
+                  : edge.source_id;
 
-        const nodeRow = await ctx.db
-          .selectFrom("nodes")
-          .selectAll()
-          .where("id", "=", targetNodeId)
-          .executeTakeFirstOrThrow();
+          const nodeRow = await ctx.db
+            .selectFrom("nodes")
+            .selectAll()
+            .where("id", "=", targetNodeId)
+            .executeTakeFirstOrThrow();
 
-        // Apply target filter if present
-        if (targetVector && args.target) {
-          const vecLiteral = toVectorLiteral(targetVector);
-
-          if (args.target.on === "CONTENT") {
-            const sim = await ctx.db
-              .selectFrom("nodes")
-              .select(
-                sql<number>`1 - (content_vector <=> ${vecLiteral}::vector)`.as(
-                  "sim",
-                ),
-              )
-              .where("id", "=", targetNodeId)
-              .executeTakeFirstOrThrow();
-
-            if (sim.sim < args.target.threshold) continue;
-          } else {
-            // LABEL — check if any label exceeds threshold
-            const labelSim = await ctx.db
-              .selectFrom("node_labels")
-              .select(
-                sql<number>`MAX(1 - (label_vector <=> ${vecLiteral}::vector))`.as(
-                  "sim",
-                ),
-              )
-              .where("node_id", "=", targetNodeId)
-              .executeTakeFirstOrThrow();
-
-            if (!labelSim.sim || labelSim.sim < args.target.threshold) continue;
-          }
-        }
-
-        const resolved = await resolveNode(ctx.db, nodeRow);
-        results.push({
-          node: resolved,
-          relationType: edge.relation_type,
-          relationScore: scoreMap.get(edge.relation_type) ?? 1.0,
-          validFrom: edge.valid_from,
-          validTo: edge.valid_to,
-          cursor: encodeCursor(offset + i),
-        });
-      }
+          const resolved = await resolveNode(ctx.db, nodeRow);
+          return {
+            node: resolved,
+            relationType: edge.relation_type,
+            validFrom: edge.valid_from,
+            validTo: edge.valid_to,
+            cursor: encodeCursor(offset + i),
+          };
+        }),
+      );
 
       return {
         edges: results,
