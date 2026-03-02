@@ -1,4 +1,7 @@
+"""ISO-8601 date-time string (e.g. `2026-03-01T12:00:00Z`)."""
 scalar DateTime
+
+"""Arbitrary JSON object."""
 scalar JSON
 
 """Relay Global Object Identification — any type with a unique `id`."""
