@@ -59,7 +59,9 @@ describe("MCP Server E2E", () => {
     const sdl = content[0]!.text;
     expect(sdl).toContain("type Query");
     expect(sdl).toContain("type Mutation");
-    expect(sdl).toContain("searchNodes");
+    expect(sdl).toContain("nodes");
+    expect(sdl).toContain("SemanticSearch");
+    expect(sdl).toContain("PropertyFilter");
     expect(sdl).toContain("createNode");
     expect(sdl).toContain("connections");
     expect(sdl).toContain("RegistryEntry");
@@ -106,20 +108,20 @@ describe("MCP Server E2E", () => {
     const result = await client.callTool({
       name: "databank_query",
       arguments: {
-        query: `query($match: MatchType!, $prop: String, $val: String!) {
-          searchNodes(match: $match, property: $prop, value: $val) {
+        query: `query($props: [PropertyFilter!], $first: Int!) {
+          nodes(properties: $props, first: $first) {
             totalCount
             edges { node { id content } }
           }
         }`,
-        variables: { match: "EXACT", prop: "source", val: "mcp-e2e" },
+        variables: { props: [{ key: "source", value: "mcp-e2e" }], first: 10 },
       },
     });
 
     expect(result.isError).toBeFalsy();
     const content = result.content as Array<{ type: string; text: string }>;
     const json = JSON.parse(content[0]!.text);
-    expect(json.data.searchNodes.totalCount).toBeGreaterThanOrEqual(1);
+    expect(json.data.nodes.totalCount).toBeGreaterThanOrEqual(1);
   });
 
   test("databank_query reports GraphQL errors", async () => {

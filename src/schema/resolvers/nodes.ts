@@ -1,5 +1,4 @@
 import { sql } from "kysely";
-import { GraphQLError } from "graphql";
 import { embed, embedBatch } from "../../embedder/client.ts";
 import {
   decodeCursor,
@@ -12,79 +11,27 @@ import { autoRegisterPropertyKeys, decrementPropertyKeys } from "./registry.ts";
 
 export const nodeResolvers = {
   Query: {
-    async searchNodes(
+    async nodes(
       _: unknown,
       args: {
-        match: "EXACT" | "SEMANTIC";
-        property?: string;
-        value: string;
-        threshold?: number;
+        search?: { query: string; threshold: number };
         labels?: string[];
-        first?: number;
+        properties?: Array<{ key: string; value: string }>;
+        first: number;
         after?: string;
       },
       ctx: GraphContext,
     ) {
-      const limit = args.first ?? 10;
+      const limit = args.first;
       const offset = args.after ? decodeCursor(args.after) + 1 : 0;
 
-      if (args.match === "EXACT") {
-        if (!args.property) {
-          throw new GraphQLError("'property' is required for EXACT match", { extensions: { code: "BAD_REQUEST" } });
-        }
+      let query = ctx.db.selectFrom("nodes");
 
-        // Build base query filtering by property
-        let query = ctx.db
-          .selectFrom("nodes")
-          .innerJoin("node_properties", "node_properties.node_id", "nodes.id")
-          .where("node_properties.key", "=", args.property)
-          .where("node_properties.value", "=", args.value);
-
-        // Optional label filter
-        if (args.labels && args.labels.length > 0) {
-          query = query.where("nodes.id", "in",
-            ctx.db
-              .selectFrom("node_labels")
-              .select("node_id")
-              .where("label", "in", args.labels),
-          );
-        }
-
-        const countResult = await query
-          .select(sql<number>`count(DISTINCT nodes.id)`.as("count"))
-          .executeTakeFirstOrThrow();
-        const totalCount = Number(countResult.count);
-
-        const rows = await query
-          .selectAll("nodes")
-          .distinctOn("nodes.id")
-          .orderBy("nodes.id")
-          .offset(offset)
-          .limit(limit)
-          .execute();
-
-        const nodes = await resolveNodes(ctx.db, rows);
-        return paginate(nodes, totalCount, offset, limit);
-      }
-
-      // SEMANTIC match — search by content vector similarity
-      if (args.threshold == null) {
-        throw new GraphQLError("'threshold' is required for SEMANTIC match", { extensions: { code: "BAD_REQUEST" } });
-      }
-
-      const queryVector = await embed(args.value);
-      const vecLiteral = toVectorLiteral(queryVector);
-
-      let query = ctx.db
-        .selectFrom("nodes")
-        .where(
-          sql`1 - (content_vector <=> ${vecLiteral}::vector)`,
-          ">=",
-          args.threshold,
-        );
-
+      // Labels filter (cheap, indexed)
       if (args.labels && args.labels.length > 0) {
-        query = query.where("nodes.id", "in",
+        query = query.where(
+          "nodes.id",
+          "in",
           ctx.db
             .selectFrom("node_labels")
             .select("node_id")
@@ -92,18 +39,51 @@ export const nodeResolvers = {
         );
       }
 
+      // Properties filter (cheap, indexed) — each filter is an AND
+      if (args.properties && args.properties.length > 0) {
+        for (const { key, value } of args.properties) {
+          query = query.where(
+            "nodes.id",
+            "in",
+            ctx.db
+              .selectFrom("node_properties")
+              .select("node_id")
+              .where("key", "=", key)
+              .where("value", "=", value),
+          );
+        }
+      }
+
+      // Semantic search (vector similarity)
+      let vecLiteral: string | null = null;
+      if (args.search) {
+        const queryVector = await embed(args.search.query);
+        vecLiteral = toVectorLiteral(queryVector);
+        query = query.where(
+          sql`1 - (content_vector <=> ${vecLiteral}::vector)`,
+          ">=",
+          args.search.threshold,
+        );
+      }
+
+      // Count
       const countResult = await query
         .select(sql<number>`count(*)`.as("count"))
         .executeTakeFirstOrThrow();
       const totalCount = Number(countResult.count);
 
-      const rows = await query
-        .selectAll("nodes")
-        .orderBy(sql`content_vector <=> ${vecLiteral}::vector`, "asc")
-        .offset(offset)
-        .limit(limit)
-        .execute();
+      // Fetch rows — order by similarity if searching, otherwise by recency
+      let dataQuery = query.selectAll("nodes");
+      if (vecLiteral) {
+        dataQuery = dataQuery.orderBy(
+          sql`content_vector <=> ${vecLiteral}::vector`,
+          "asc",
+        );
+      } else {
+        dataQuery = dataQuery.orderBy("nodes.created_at", "desc");
+      }
 
+      const rows = await dataQuery.offset(offset).limit(limit).execute();
       const nodes = await resolveNodes(ctx.db, rows);
       return paginate(nodes, totalCount, offset, limit);
     },

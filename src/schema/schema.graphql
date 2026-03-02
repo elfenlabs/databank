@@ -48,6 +48,16 @@ input CreateEdgeInput {
   validTo: DateTime
 }
 
+input SemanticSearch {
+  query: String!
+  threshold: Float!
+}
+
+input PropertyFilter {
+  key: String!
+  value: String!
+}
+
 # --- Node Types ---
 type Node {
   id: ID!
@@ -140,13 +150,11 @@ type SchemaInfo {
 
 # --- Queries ---
 type Query {
-  searchNodes(
-    match: MatchType!
-    property: String
-    value: String!
-    threshold: Float
+  nodes(
+    search: SemanticSearch
     labels: [String!]
-    first: Int = 10
+    properties: [PropertyFilter!]
+    first: Int!
     after: String
   ): NodeResult!
 

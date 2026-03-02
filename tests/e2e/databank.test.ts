@@ -100,28 +100,28 @@ describe("Databank E2E", () => {
     expect(paradigmEntry!.node.usageCount).toBe(1);
   });
 
-  // 4. EXACT search by property
-  test("searchNodes EXACT finds by property", async () => {
+  // 4. Filter by property
+  test("nodes filters by property", async () => {
     const { data, errors } = await gql<{
-      searchNodes: { totalCount: number; edges: Array<{ node: { id: string; content: string } }> };
+      nodes: { totalCount: number; edges: Array<{ node: { id: string; content: string } }> };
     }>(`{
-      searchNodes(match: EXACT, property: "name", value: "TypeScript") {
+      nodes(properties: [{ key: "name", value: "TypeScript" }], first: 10) {
         totalCount
         edges { node { id content } }
       }
     }`);
 
     expect(errors).toBeUndefined();
-    expect(data!.searchNodes.totalCount).toBe(1);
-    expect(data!.searchNodes.edges[0]!.node.id).toBe(nodeIds.ts);
+    expect(data!.nodes.totalCount).toBe(1);
+    expect(data!.nodes.edges[0]!.node.id).toBe(nodeIds.ts);
   });
 
-  // 5. SEMANTIC search
-  test("searchNodes SEMANTIC finds similar content", async () => {
+  // 5. Semantic search
+  test("nodes semantic search finds similar content", async () => {
     const { data, errors } = await gql<{
-      searchNodes: { totalCount: number; edges: Array<{ node: { id: string; labels: string[] } }> };
+      nodes: { totalCount: number; edges: Array<{ node: { id: string; labels: string[] } }> };
     }>(`{
-      searchNodes(match: SEMANTIC, value: "programming language", threshold: 0.3) {
+      nodes(search: { query: "programming language", threshold: 0.3 }, first: 10) {
         totalCount
         edges { node { id labels } }
       }
@@ -129,8 +129,8 @@ describe("Databank E2E", () => {
 
     expect(errors).toBeUndefined();
     // Should find at least TS and Rust (programming languages)
-    expect(data!.searchNodes.totalCount).toBeGreaterThanOrEqual(2);
-    const ids = data!.searchNodes.edges.map((e) => e.node.id);
+    expect(data!.nodes.totalCount).toBeGreaterThanOrEqual(2);
+    const ids = data!.nodes.edges.map((e) => e.node.id);
     expect(ids).toContain(nodeIds.ts);
     expect(ids).toContain(nodeIds.rust);
   });
