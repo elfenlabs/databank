@@ -18,7 +18,6 @@ export interface RelationsTable {
 export interface PropertyKeysTable {
   name: string;
   description: string | null;
-  name_vector: Vector | null;
   usage_count: ColumnType<number, number | undefined, number>;
   created_at: ColumnType<Date, Date | undefined, never>;
 }
@@ -27,6 +26,7 @@ export interface EntitiesTable {
   id: Generated<string>;
   content: string;
   content_vector: Vector | null;
+  properties: ColumnType<Record<string, unknown>, string | undefined, string>;
   created_at: ColumnType<Date, Date | undefined, never>;
 }
 
@@ -35,13 +35,6 @@ export interface EntityLabelsTable {
   entity_id: string;
   label: string;
   label_vector: Vector | null;
-}
-
-export interface EntityPropertiesTable {
-  id: Generated<string>;
-  entity_id: string;
-  key: string;
-  value: string;
 }
 
 export interface EdgesTable {
@@ -64,6 +57,5 @@ export interface Database {
   property_keys: PropertyKeysTable;
   entities: EntitiesTable;
   entity_labels: EntityLabelsTable;
-  entity_properties: EntityPropertiesTable;
   edges: EdgesTable;
 }

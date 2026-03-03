@@ -7,7 +7,6 @@ import {
   type GraphContext,
 } from "../context.ts";
 import { resolveEntity, resolveEntities } from "./shared.ts";
-import { autoRegisterPropertyKeys, decrementPropertyKeys } from "./registry.ts";
 
 export const entityResolvers = {
   Query: {
@@ -39,18 +38,13 @@ export const entityResolvers = {
         );
       }
 
-      // Properties filter (cheap, indexed) — each filter is an AND
+      // Properties filter (JSONB containment, GIN-indexed) — each filter is an AND
       if (args.properties && args.properties.length > 0) {
         for (const { key, value } of args.properties) {
-          query = query.where(
-            "entities.id",
-            "in",
-            ctx.db
-              .selectFrom("entity_properties")
-              .select("entity_id")
-              .where("key", "=", key)
-              .where("value", "=", value),
-          );
+          const jsonFilter = JSON.stringify({ [key]: value });
+          query = query.where(({ eb }) =>
+            eb(sql`properties @> ${jsonFilter}::jsonb`, "=", sql`true`),
+          ) as any;
         }
       }
 
@@ -114,12 +108,13 @@ export const entityResolvers = {
       const contentVector = toVectorLiteral(vectors[0]!);
       const labelVectors = vectors.slice(1);
 
-      // Insert entity
+      // Insert entity with properties as JSONB
       const entity = await ctx.db
         .insertInto("entities")
         .values({
           content: args.input.content,
           content_vector: sql`${contentVector}::vector`,
+          properties: JSON.stringify(args.input.properties ?? {}),
         } as any)
         .returningAll()
         .executeTakeFirstOrThrow();
@@ -136,25 +131,6 @@ export const entityResolvers = {
             } as any)),
           )
           .execute();
-      }
-
-      // Insert properties + auto-register keys
-      if (args.input.properties) {
-        const entries = Object.entries(args.input.properties);
-        if (entries.length > 0) {
-          await ctx.db
-            .insertInto("entity_properties")
-            .values(
-              entries.map(([key, value]) => ({
-                entity_id: entity.id,
-                key,
-                value,
-              })),
-            )
-            .execute();
-
-          await autoRegisterPropertyKeys(ctx, entries.map(([k]) => k));
-        }
       }
 
       return resolveEntity(ctx.db, entity);
@@ -211,38 +187,11 @@ export const entityResolvers = {
 
       // Replace properties if provided
       if (input.properties != null) {
-        // Get old keys for decrementing
-        const oldProps = await ctx.db
-          .selectFrom("entity_properties")
-          .select("key")
-          .where("entity_id", "=", id)
-          .execute();
-
         await ctx.db
-          .deleteFrom("entity_properties")
-          .where("entity_id", "=", id)
+          .updateTable("entities")
+          .set({ properties: JSON.stringify(input.properties) } as any)
+          .where("id", "=", id)
           .execute();
-
-        // Decrement old keys
-        if (oldProps.length > 0) {
-          await decrementPropertyKeys(ctx, oldProps.map((p) => p.key));
-        }
-
-        const entries = Object.entries(input.properties);
-        if (entries.length > 0) {
-          await ctx.db
-            .insertInto("entity_properties")
-            .values(
-              entries.map(([key, value]) => ({
-                entity_id: id,
-                key,
-                value,
-              })),
-            )
-            .execute();
-
-          await autoRegisterPropertyKeys(ctx, entries.map(([k]) => k));
-        }
       }
 
       const row = await ctx.db

@@ -9,252 +9,6 @@ import {
 } from "../context.ts";
 
 // ---------------------------------------------------------------------------
-// Generic registry resolver factory
-// ---------------------------------------------------------------------------
-
-type RegistryTable = "relations" | "property_keys";
-
-/** What table to check for usage when deleting a registry entry. */
-interface UsageGuard {
-  table: "edges" | "entity_properties";
-  column: string;
-  label: string; // human-readable name for error messages
-}
-
-interface RegistryConfig {
-  registryTable: RegistryTable;
-  usageGuard: UsageGuard;
-}
-
-function makeRegistryResolvers(config: RegistryConfig) {
-  const { registryTable, usageGuard } = config;
-
-  return {
-    async query(
-      _: unknown,
-      args: {
-        match?: "EXACT" | "SEMANTIC";
-        value?: string;
-        threshold?: number;
-        first?: number;
-        after?: string;
-      },
-      ctx: GraphContext,
-    ) {
-      const limit = args.first ?? 20;
-      const offset = args.after ? decodeCursor(args.after) + 1 : 0;
-
-      // No filter → return all entries paginated
-      if (!args.match || !args.value) {
-        const countResult = await ctx.db
-          .selectFrom(registryTable)
-          .select(sql<number>`count(*)`.as("count"))
-          .executeTakeFirstOrThrow();
-        const totalCount = Number(countResult.count);
-
-        const rows = await ctx.db
-          .selectFrom(registryTable)
-          .selectAll()
-          .orderBy("usage_count", "desc")
-          .offset(offset)
-          .limit(limit)
-          .execute();
-
-        return formatResult(rows, totalCount, offset, limit, () => 1.0);
-      }
-
-      if (args.match === "EXACT") {
-        const countResult = await ctx.db
-          .selectFrom(registryTable)
-          .select(sql<number>`count(*)`.as("count"))
-          .where("name", "=", args.value)
-          .executeTakeFirstOrThrow();
-        const totalCount = Number(countResult.count);
-
-        const rows = await ctx.db
-          .selectFrom(registryTable)
-          .selectAll()
-          .where("name", "=", args.value)
-          .offset(offset)
-          .limit(limit)
-          .execute();
-
-        return formatResult(rows, totalCount, offset, limit, () => 1.0);
-      }
-
-      // SEMANTIC match
-      if (args.threshold == null) {
-        throw new GraphQLError(
-          "'threshold' is required for SEMANTIC match",
-          { extensions: { code: "BAD_REQUEST" } },
-        );
-      }
-
-      const queryVector = await embed(args.value);
-      const vecLiteral = toVectorLiteral(queryVector);
-
-      const countResult = await ctx.db
-        .selectFrom(registryTable)
-        .select(sql<number>`count(*)`.as("count"))
-        .where(
-          sql`1 - (name_vector <=> ${vecLiteral}::vector)`,
-          ">=",
-          args.threshold,
-        )
-        .executeTakeFirstOrThrow();
-      const totalCount = Number(countResult.count);
-
-      const rows = await ctx.db
-        .selectFrom(registryTable)
-        .selectAll()
-        .select(
-          sql<number>`1 - (name_vector <=> ${vecLiteral}::vector)`.as(
-            "similarity",
-          ),
-        )
-        .where(
-          sql`1 - (name_vector <=> ${vecLiteral}::vector)`,
-          ">=",
-          args.threshold,
-        )
-        .orderBy(sql`name_vector <=> ${vecLiteral}::vector`, "asc")
-        .offset(offset)
-        .limit(limit)
-        .execute();
-
-      return formatResult(
-        rows,
-        totalCount,
-        offset,
-        limit,
-        (r) => (r as any).similarity ?? 1.0,
-      );
-    },
-
-    async register(
-      _: unknown,
-      args: { name: string; description?: string },
-      ctx: GraphContext,
-    ) {
-      const nameVector = toVectorLiteral(await embed(args.name));
-
-      const row = await ctx.db
-        .insertInto(registryTable)
-        .values({
-          name: args.name,
-          description: args.description ?? null,
-          name_vector: sql`${nameVector}::vector`,
-        } as any)
-        .onConflict((oc) =>
-          oc.column("name").doUpdateSet({
-            description: args.description ?? sql`${registryTable}.description`,
-            name_vector: sql`${nameVector}::vector`,
-          } as any),
-        )
-        .returningAll()
-        .executeTakeFirstOrThrow();
-
-      return toEntry(row);
-    },
-
-    async merge(
-      _: unknown,
-      args: { sources: string[]; target: string },
-      ctx: GraphContext,
-    ) {
-      // Ensure target exists
-      const existing = await ctx.db
-        .selectFrom(registryTable)
-        .select("name")
-        .where("name", "=", args.target)
-        .executeTakeFirst();
-
-      if (!existing) {
-        const nameVector = toVectorLiteral(await embed(args.target));
-        await ctx.db
-          .insertInto(registryTable)
-          .values({
-            name: args.target,
-            name_vector: sql`${nameVector}::vector`,
-          } as any)
-          .execute();
-      }
-
-      // Re-label references from sources → target
-      if (registryTable === "relations") {
-        await ctx.db
-          .updateTable("edges")
-          .set({ relation_type: args.target })
-          .where("relation_type", "in", args.sources)
-          .execute();
-      } else {
-        await ctx.db
-          .updateTable("entity_properties")
-          .set({ key: args.target })
-          .where("key", "in", args.sources)
-          .execute();
-      }
-
-      // Sum usage counts from sources into target
-      const sourceCounts = await ctx.db
-        .selectFrom(registryTable)
-        .select(sql<number>`COALESCE(SUM(usage_count), 0)`.as("total"))
-        .where("name", "in", args.sources)
-        .executeTakeFirstOrThrow();
-
-      await ctx.db
-        .updateTable(registryTable)
-        .set({
-          usage_count: sql`usage_count + ${Number(sourceCounts.total)}`,
-        })
-        .where("name", "=", args.target)
-        .execute();
-
-      // Delete source entries
-      await ctx.db
-        .deleteFrom(registryTable)
-        .where("name", "in", args.sources)
-        .execute();
-
-      const result = await ctx.db
-        .selectFrom(registryTable)
-        .selectAll()
-        .where("name", "=", args.target)
-        .executeTakeFirstOrThrow();
-
-      return toEntry(result);
-    },
-
-    async delete(
-      _: unknown,
-      args: { name: string },
-      ctx: GraphContext,
-    ) {
-      // Check if any references still exist
-      const usedBy = await ctx.db
-        .selectFrom(usageGuard.table as any)
-        .select(sql<number>`count(*)`.as("count"))
-        .where(usageGuard.column as any, "=", args.name)
-        .executeTakeFirstOrThrow();
-
-      if (Number(usedBy.count) > 0) {
-        throw new GraphQLError(
-          `Cannot delete ${usageGuard.label} '${args.name}': still referenced by ${usedBy.count} row(s)`,
-          { extensions: { code: "CONFLICT" } },
-        );
-      }
-
-      const result = await ctx.db
-        .deleteFrom(registryTable)
-        .where("name", "=", args.name)
-        .executeTakeFirst();
-
-      return (result?.numDeletedRows ?? 0n) > 0n;
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -293,85 +47,380 @@ function formatResult<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Auto-register helper (used by node resolvers)
+// Relations registry (with semantic search via name_vector)
 // ---------------------------------------------------------------------------
 
-/**
- * Auto-register property keys into the property_keys registry.
- * Inserts new keys and increments usage_count for each occurrence.
- */
-export async function autoRegisterPropertyKeys(
-  ctx: GraphContext,
-  keys: string[],
-) {
-  for (const key of keys) {
+const relationResolvers = {
+  async query(
+    _: unknown,
+    args: {
+      match?: "EXACT" | "SEMANTIC";
+      value?: string;
+      threshold?: number;
+      first?: number;
+      after?: string;
+    },
+    ctx: GraphContext,
+  ) {
+    const limit = args.first ?? 20;
+    const offset = args.after ? decodeCursor(args.after) + 1 : 0;
+
+    // No filter → return all entries paginated
+    if (!args.match || !args.value) {
+      const countResult = await ctx.db
+        .selectFrom("relations")
+        .select(sql<number>`count(*)`.as("count"))
+        .executeTakeFirstOrThrow();
+      const totalCount = Number(countResult.count);
+
+      const rows = await ctx.db
+        .selectFrom("relations")
+        .selectAll()
+        .orderBy("usage_count", "desc")
+        .offset(offset)
+        .limit(limit)
+        .execute();
+
+      return formatResult(rows, totalCount, offset, limit, () => 1.0);
+    }
+
+    if (args.match === "EXACT") {
+      const countResult = await ctx.db
+        .selectFrom("relations")
+        .select(sql<number>`count(*)`.as("count"))
+        .where("name", "=", args.value)
+        .executeTakeFirstOrThrow();
+      const totalCount = Number(countResult.count);
+
+      const rows = await ctx.db
+        .selectFrom("relations")
+        .selectAll()
+        .where("name", "=", args.value)
+        .offset(offset)
+        .limit(limit)
+        .execute();
+
+      return formatResult(rows, totalCount, offset, limit, () => 1.0);
+    }
+
+    // SEMANTIC match
+    if (args.threshold == null) {
+      throw new GraphQLError(
+        "'threshold' is required for SEMANTIC match",
+        { extensions: { code: "BAD_REQUEST" } },
+      );
+    }
+
+    const queryVector = await embed(args.value);
+    const vecLiteral = toVectorLiteral(queryVector);
+
+    const countResult = await ctx.db
+      .selectFrom("relations")
+      .select(sql<number>`count(*)`.as("count"))
+      .where(
+        sql`1 - (name_vector <=> ${vecLiteral}::vector)`,
+        ">=",
+        args.threshold,
+      )
+      .executeTakeFirstOrThrow();
+    const totalCount = Number(countResult.count);
+
+    const rows = await ctx.db
+      .selectFrom("relations")
+      .selectAll()
+      .select(
+        sql<number>`1 - (name_vector <=> ${vecLiteral}::vector)`.as(
+          "similarity",
+        ),
+      )
+      .where(
+        sql`1 - (name_vector <=> ${vecLiteral}::vector)`,
+        ">=",
+        args.threshold,
+      )
+      .orderBy(sql`name_vector <=> ${vecLiteral}::vector`, "asc")
+      .offset(offset)
+      .limit(limit)
+      .execute();
+
+    return formatResult(
+      rows,
+      totalCount,
+      offset,
+      limit,
+      (r) => (r as any).similarity ?? 1.0,
+    );
+  },
+
+  async register(
+    _: unknown,
+    args: { name: string; description?: string },
+    ctx: GraphContext,
+  ) {
+    const nameVector = toVectorLiteral(await embed(args.name));
+
+    const row = await ctx.db
+      .insertInto("relations")
+      .values({
+        name: args.name,
+        description: args.description ?? null,
+        name_vector: sql`${nameVector}::vector`,
+      } as any)
+      .onConflict((oc) =>
+        oc.column("name").doUpdateSet({
+          description: args.description ?? sql`relations.description`,
+          name_vector: sql`${nameVector}::vector`,
+        } as any),
+      )
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    return toEntry(row);
+  },
+
+  async merge(
+    _: unknown,
+    args: { sources: string[]; target: string },
+    ctx: GraphContext,
+  ) {
+    // Ensure target exists
     const existing = await ctx.db
-      .selectFrom("property_keys")
+      .selectFrom("relations")
       .select("name")
-      .where("name", "=", key)
+      .where("name", "=", args.target)
       .executeTakeFirst();
 
     if (!existing) {
-      const nameVector = toVectorLiteral(await embed(key));
+      const nameVector = toVectorLiteral(await embed(args.target));
       await ctx.db
-        .insertInto("property_keys")
+        .insertInto("relations")
         .values({
-          name: key,
+          name: args.target,
           name_vector: sql`${nameVector}::vector`,
         } as any)
-        .onConflict((oc) => oc.column("name").doNothing())
         .execute();
     }
 
+    // Re-label edge references
     await ctx.db
-      .updateTable("property_keys")
-      .set({ usage_count: sql`usage_count + 1` })
-      .where("name", "=", key)
+      .updateTable("edges")
+      .set({ relation_type: args.target })
+      .where("relation_type", "in", args.sources)
       .execute();
-  }
-}
 
-/**
- * Decrement usage_count for property keys (used during updateEntity property replacement).
- */
-export async function decrementPropertyKeys(
-  ctx: GraphContext,
-  keys: string[],
-) {
-  for (const key of keys) {
+    // Sum usage counts from sources into target
+    const sourceCounts = await ctx.db
+      .selectFrom("relations")
+      .select(sql<number>`COALESCE(SUM(usage_count), 0)`.as("total"))
+      .where("name", "in", args.sources)
+      .executeTakeFirstOrThrow();
+
     await ctx.db
-      .updateTable("property_keys")
-      .set({ usage_count: sql`GREATEST(usage_count - 1, 0)` })
-      .where("name", "=", key)
+      .updateTable("relations")
+      .set({
+        usage_count: sql`usage_count + ${Number(sourceCounts.total)}`,
+      })
+      .where("name", "=", args.target)
       .execute();
-  }
-}
+
+    // Delete source entries
+    await ctx.db
+      .deleteFrom("relations")
+      .where("name", "in", args.sources)
+      .execute();
+
+    const result = await ctx.db
+      .selectFrom("relations")
+      .selectAll()
+      .where("name", "=", args.target)
+      .executeTakeFirstOrThrow();
+
+    return toEntry(result);
+  },
+
+  async delete(
+    _: unknown,
+    args: { name: string },
+    ctx: GraphContext,
+  ) {
+    // Check if any edges still reference this relation
+    const usedBy = await ctx.db
+      .selectFrom("edges")
+      .select(sql<number>`count(*)`.as("count"))
+      .where("relation_type", "=", args.name)
+      .executeTakeFirstOrThrow();
+
+    if (Number(usedBy.count) > 0) {
+      throw new GraphQLError(
+        `Cannot delete relation '${args.name}': still referenced by ${usedBy.count} edge(s)`,
+        { extensions: { code: "CONFLICT" } },
+      );
+    }
+
+    const result = await ctx.db
+      .deleteFrom("relations")
+      .where("name", "=", args.name)
+      .executeTakeFirst();
+
+    return (result?.numDeletedRows ?? 0n) > 0n;
+  },
+};
 
 // ---------------------------------------------------------------------------
-// Instantiate resolvers for both registries
+// Property keys registry (simple vocabulary — no embeddings)
 // ---------------------------------------------------------------------------
 
-const relations = makeRegistryResolvers({
-  registryTable: "relations",
-  usageGuard: { table: "edges", column: "relation_type", label: "relation" },
-});
+const propertyResolvers = {
+  async query(
+    _: unknown,
+    args: {
+      first?: number;
+      after?: string;
+    },
+    ctx: GraphContext,
+  ) {
+    const limit = args.first ?? 20;
+    const offset = args.after ? decodeCursor(args.after) + 1 : 0;
 
-const properties = makeRegistryResolvers({
-  registryTable: "property_keys",
-  usageGuard: { table: "entity_properties", column: "key", label: "property" },
-});
+    const countResult = await ctx.db
+      .selectFrom("property_keys")
+      .select(sql<number>`count(*)`.as("count"))
+      .executeTakeFirstOrThrow();
+    const totalCount = Number(countResult.count);
+
+    const rows = await ctx.db
+      .selectFrom("property_keys")
+      .selectAll()
+      .orderBy("usage_count", "desc")
+      .offset(offset)
+      .limit(limit)
+      .execute();
+
+    return formatResult(rows, totalCount, offset, limit, () => 1.0);
+  },
+
+  async register(
+    _: unknown,
+    args: { name: string; description?: string },
+    ctx: GraphContext,
+  ) {
+    const row = await ctx.db
+      .insertInto("property_keys")
+      .values({
+        name: args.name,
+        description: args.description ?? null,
+      })
+      .onConflict((oc) =>
+        oc.column("name").doUpdateSet({
+          description: args.description ?? sql`property_keys.description`,
+        }),
+      )
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    return toEntry(row);
+  },
+
+  async merge(
+    _: unknown,
+    args: { sources: string[]; target: string },
+    ctx: GraphContext,
+  ) {
+    // Ensure target exists
+    const existing = await ctx.db
+      .selectFrom("property_keys")
+      .select("name")
+      .where("name", "=", args.target)
+      .executeTakeFirst();
+
+    if (!existing) {
+      await ctx.db
+        .insertInto("property_keys")
+        .values({ name: args.target })
+        .execute();
+    }
+
+    // Re-label JSONB keys in entities: rename source keys to target
+    for (const source of args.sources) {
+      await sql`
+        UPDATE entities
+        SET properties = properties - ${source} || jsonb_build_object(${args.target}, properties->${source})
+        WHERE properties ? ${source}
+      `.execute(ctx.db);
+    }
+
+    // Sum usage counts from sources into target
+    const sourceCounts = await ctx.db
+      .selectFrom("property_keys")
+      .select(sql<number>`COALESCE(SUM(usage_count), 0)`.as("total"))
+      .where("name", "in", args.sources)
+      .executeTakeFirstOrThrow();
+
+    await ctx.db
+      .updateTable("property_keys")
+      .set({
+        usage_count: sql`usage_count + ${Number(sourceCounts.total)}`,
+      })
+      .where("name", "=", args.target)
+      .execute();
+
+    // Delete source entries
+    await ctx.db
+      .deleteFrom("property_keys")
+      .where("name", "in", args.sources)
+      .execute();
+
+    const result = await ctx.db
+      .selectFrom("property_keys")
+      .selectAll()
+      .where("name", "=", args.target)
+      .executeTakeFirstOrThrow();
+
+    return toEntry(result);
+  },
+
+  async delete(
+    _: unknown,
+    args: { name: string },
+    ctx: GraphContext,
+  ) {
+    // Check if any entities still use this key in their JSONB properties
+    const usedBy = await sql<{ count: number }>`
+      SELECT count(*) as count FROM entities WHERE properties ? ${args.name}
+    `.execute(ctx.db);
+
+    const count = Number(usedBy.rows[0]?.count ?? 0);
+    if (count > 0) {
+      throw new GraphQLError(
+        `Cannot delete property '${args.name}': still referenced by ${count} entity(ies)`,
+        { extensions: { code: "CONFLICT" } },
+      );
+    }
+
+    const result = await ctx.db
+      .deleteFrom("property_keys")
+      .where("name", "=", args.name)
+      .executeTakeFirst();
+
+    return (result?.numDeletedRows ?? 0n) > 0n;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Exported resolvers
+// ---------------------------------------------------------------------------
 
 export const registryResolvers = {
   Query: {
-    relationKeys: relations.query,
-    propertyKeys: properties.query,
+    relationKeys: relationResolvers.query,
+    propertyKeys: propertyResolvers.query,
   },
   Mutation: {
-    registerRelation: relations.register,
-    mergeRelations: relations.merge,
-    deleteRelation: relations.delete,
-    registerProperty: properties.register,
-    mergeProperties: properties.merge,
-    deleteProperty: properties.delete,
+    registerRelation: relationResolvers.register,
+    mergeRelations: relationResolvers.merge,
+    deleteRelation: relationResolvers.delete,
+    registerProperty: propertyResolvers.register,
+    mergeProperties: propertyResolvers.merge,
+    deleteProperty: propertyResolvers.delete,
   },
 };

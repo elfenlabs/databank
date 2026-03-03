@@ -26,7 +26,7 @@ input CreateEntityInput {
   """Text content, automatically embedded for semantic search."""
   content: String!
   labels: [String!]!
-  """Key-value properties. Keys are auto-registered in the property registry."""
+  """Key-value properties stored as JSON."""
   properties: JSON
 }
 
@@ -223,12 +223,8 @@ type Query {
     after: String
   ): RegistryConnection!
 
-  """Browse or search property key registry. Default sort: usage count (desc)."""
+  """Browse the property key vocabulary. Default sort: usage count (desc)."""
   propertyKeys(
-    match: MatchType
-    value: String
-    """Required when `match: SEMANTIC`."""
-    threshold: Float
     first: Int = 20
     after: String
   ): RegistryConnection!
@@ -245,7 +241,7 @@ type Query {
 type Mutation {
   createEntity(input: CreateEntityInput!): Entity!
   updateEntity(id: ID!, input: UpdateEntityInput!): Entity!
-  """Cascades: removes associated labels, properties, and edges."""
+  """Cascades: removes associated labels and edges."""
   deleteEntity(id: ID!): Boolean!
 
   """Relation type is auto-registered if new."""

@@ -6,26 +6,19 @@ import type { Database } from "../../db/types.ts";
  */
 export async function resolveEntity(
   db: Kysely<Database>,
-  row: { id: string; content: string; created_at: Date },
+  row: { id: string; content: string; properties: Record<string, unknown>; created_at: Date },
 ) {
-  const [labels, properties] = await Promise.all([
-    db
-      .selectFrom("entity_labels")
-      .select("label")
-      .where("entity_id", "=", row.id)
-      .execute(),
-    db
-      .selectFrom("entity_properties")
-      .select(["key", "value"])
-      .where("entity_id", "=", row.id)
-      .execute(),
-  ]);
+  const labels = await db
+    .selectFrom("entity_labels")
+    .select("label")
+    .where("entity_id", "=", row.id)
+    .execute();
 
   return {
     id: row.id,
     content: row.content,
     labels: labels.map((l) => l.label),
-    properties: Object.fromEntries(properties.map((p) => [p.key, p.value])),
+    properties: row.properties ?? {},
     createdAt: row.created_at,
   };
 }
@@ -35,7 +28,7 @@ export async function resolveEntity(
  */
 export async function resolveEntities(
   db: Kysely<Database>,
-  rows: Array<{ id: string; content: string; created_at: Date }>,
+  rows: Array<{ id: string; content: string; properties: Record<string, unknown>; created_at: Date }>,
 ) {
   return Promise.all(rows.map((r) => resolveEntity(db, r)));
 }

@@ -85,24 +85,7 @@ describe("Databank E2E", () => {
     entityIds.pg = data!.pg.id;
   });
 
-  // 3. Property keys auto-registered
-  test("propertyKeys auto-registered from createEntity", async () => {
-    const { data, errors } = await gql<{
-      propertyKeys: { totalCount: number; edges: Array<{ node: { name: string; usageCount: number } }> };
-    }>(`{ propertyKeys { totalCount edges { node { name usageCount } } } }`);
 
-    expect(errors).toBeUndefined();
-    expect(data!.propertyKeys.totalCount).toBeGreaterThanOrEqual(2);
-    const keys = data!.propertyKeys.edges.map((e) => e.node.name);
-    expect(keys).toContain("name");
-    expect(keys).toContain("paradigm");
-
-    // "name" used 3 times (TS, Rust, PG), "paradigm" used 1 time
-    const nameEntry = data!.propertyKeys.edges.find((e) => e.node.name === "name");
-    expect(nameEntry!.node.usageCount).toBe(3);
-    const paradigmEntry = data!.propertyKeys.edges.find((e) => e.node.name === "paradigm");
-    expect(paradigmEntry!.node.usageCount).toBe(1);
-  });
 
   // 4. Filter by property
   test("entities filters by property", async () => {

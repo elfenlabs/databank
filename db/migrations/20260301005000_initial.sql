@@ -9,11 +9,10 @@ CREATE TABLE relations (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Property key registry (mirrors relations)
+-- Property key registry (lightweight vocabulary — no embeddings)
 CREATE TABLE property_keys (
   name            TEXT PRIMARY KEY,
   description     TEXT,
-  name_vector     vector(384),
   usage_count     INT NOT NULL DEFAULT 0,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -23,8 +22,10 @@ CREATE TABLE entities (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   content         TEXT NOT NULL,
   content_vector  vector(384),
+  properties      JSONB NOT NULL DEFAULT '{}',
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX idx_entities_properties ON entities USING GIN (properties);
 
 -- Entity labels (one row per label, each with its own embedding)
 CREATE TABLE entity_labels (
@@ -34,16 +35,6 @@ CREATE TABLE entity_labels (
   label_vector    vector(384),
   UNIQUE(entity_id, label)
 );
-
--- Entity properties (normalized key-value pairs)
-CREATE TABLE entity_properties (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  entity_id       UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  key             TEXT NOT NULL,
-  value           TEXT NOT NULL,
-  UNIQUE(entity_id, key)
-);
-CREATE INDEX idx_entity_properties_lookup ON entity_properties(key, value);
 
 -- Edges (directed relationships with temporal metadata)
 CREATE TABLE edges (
@@ -60,7 +51,6 @@ CREATE TABLE edges (
 -- migrate:down
 
 DROP TABLE IF EXISTS edges;
-DROP TABLE IF EXISTS entity_properties;
 DROP TABLE IF EXISTS entity_labels;
 DROP TABLE IF EXISTS entities;
 DROP TABLE IF EXISTS property_keys;
