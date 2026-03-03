@@ -1,0 +1,57 @@
+{
+    "labels": [
+        "person",
+        "organization",
+        "place",
+        "event",
+        "document",
+        "concept",
+        "item"
+    ],
+    "relations": [
+        {
+            "name": "owns",
+            "description": "Ownership of an entity"
+        },
+        {
+            "name": "creates",
+            "description": "Authorship or creation of an entity"
+        },
+        {
+            "name": "maintains",
+            "description": "Ongoing responsibility for an entity"
+        },
+        {
+            "name": "contains",
+            "description": "Hierarchical containment"
+        },
+        {
+            "name": "part_of",
+            "description": "Membership in a larger whole"
+        },
+        {
+            "name": "related_to",
+            "description": "General association between entities"
+        },
+        {
+            "name": "participates_in",
+            "description": "Involvement in an event or activity"
+        },
+        {
+            "name": "member_of",
+            "description": "Membership in a group or organization"
+        },
+        {
+            "name": "depends_on",
+            "description": "Dependency between entities"
+        },
+        {
+            "name": "follows",
+            "description": "Sequential ordering"
+        },
+        {
+            "name": "uses",
+            "description": "Usage or consumption of an entity"
+        }
+    ]
+}

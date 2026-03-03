@@ -1,5 +1,6 @@
 import { entityResolvers } from "./entities.ts";
 import { relationResolvers } from "./relations.ts";
+import { pathResolvers } from "./path.ts";
 import { edgeResolvers } from "./edges.ts";
 import { registryResolvers } from "./registry.ts";
 import { maintenanceResolvers } from "./maintenance.ts";
@@ -25,6 +26,7 @@ function mergeResolvers(
 export const resolvers = mergeResolvers(
   entityResolvers,
   relationResolvers,
+  pathResolvers,
   edgeResolvers,
   registryResolvers,
   maintenanceResolvers,

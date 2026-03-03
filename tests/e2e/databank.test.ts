@@ -20,14 +20,15 @@ afterAll(async () => {
 
 const entityIds = { ts: "", rust: "", pg: "" };
 let edgeId = "";
+let edgeId2 = "";
 
 // ---------------------------------------------------------------------------
 // Tests — run sequentially, each builds on previous state
 // ---------------------------------------------------------------------------
 
 describe("Databank E2E", () => {
-  // 1. Schema query — empty DB
-  test("schema returns empty counts", async () => {
+  // 1. Schema query — fresh DB (seeded relations, no entities/edges)
+  test("schema returns seeded state", async () => {
     const { data, errors } = await gql<{
       schema: { entityCount: number; edgeCount: number; labels: string[]; relationTypes: string[]; propertyKeys: string[] };
     }>(`{ schema { entityCount edgeCount labels relationTypes propertyKeys } }`);
@@ -36,7 +37,10 @@ describe("Databank E2E", () => {
     expect(data!.schema.entityCount).toBe(0);
     expect(data!.schema.edgeCount).toBe(0);
     expect(data!.schema.labels).toEqual([]);
-    expect(data!.schema.relationTypes).toEqual([]);
+    // Starter relations are seeded at boot
+    expect(data!.schema.relationTypes.length).toBeGreaterThanOrEqual(11);
+    expect(data!.schema.relationTypes).toContain("owns");
+    expect(data!.schema.relationTypes).toContain("depends_on");
     expect(data!.schema.propertyKeys).toEqual([]);
   });
 
@@ -147,14 +151,14 @@ describe("Databank E2E", () => {
       input: {
         sourceId: entityIds.ts,
         targetId: entityIds.pg,
-        relationType: "RUNS_ON",
+        relationType: "runs_on",
       },
     });
 
     expect(errors).toBeUndefined();
     expect(data!.createEdge.sourceId).toBe(entityIds.ts);
     expect(data!.createEdge.targetId).toBe(entityIds.pg);
-    expect(data!.createEdge.relationType).toBe("RUNS_ON");
+    expect(data!.createEdge.relationType).toBe("runs_on");
     edgeId = data!.createEdge.id;
   });
 
@@ -177,8 +181,142 @@ describe("Databank E2E", () => {
     expect(errors).toBeUndefined();
     expect(data!.relations.totalCount).toBe(1);
     expect(data!.relations.edges[0]!.node.id).toBe(entityIds.pg);
-    expect(data!.relations.edges[0]!.edge.relationType).toBe("RUNS_ON");
+    expect(data!.relations.edges[0]!.edge.relationType).toBe("runs_on");
     expect(data!.relations.edges[0]!.edge.id).toBeTruthy();
+  });
+
+  // 7b. Create second edge for multi-hop chain: Rust →(depends_on)→ TS →(runs_on)→ PG
+  test("createEdge builds multi-hop chain", async () => {
+    const { data, errors } = await gql<{
+      createEdge: { id: string; relationType: string };
+    }>(`
+      mutation($input: CreateEdgeInput!) {
+        createEdge(input: $input) { id relationType }
+      }
+    `, {
+      input: {
+        sourceId: entityIds.rust,
+        targetId: entityIds.ts,
+        relationType: "depends_on",
+      },
+    });
+
+    expect(errors).toBeUndefined();
+    expect(data!.createEdge.relationType).toBe("depends_on");
+    edgeId2 = data!.createEdge.id;
+  });
+
+  // 7c. Multi-hop: depth 2 outgoing from Rust → should reach PG
+  test("relations depth 2 returns terminal entities", async () => {
+    const { data, errors } = await gql<{
+      relations: {
+        totalCount: number;
+        edges: Array<{ node: { id: string }; edge: { relationType: string } }>;
+      };
+    }>(`
+      query($entityId: ID!) {
+        relations(entityId: $entityId, direction: OUTGOING, depth: 2) {
+          totalCount
+          edges { node { id } edge { relationType } }
+        }
+      }
+    `, { entityId: entityIds.rust });
+
+    expect(errors).toBeUndefined();
+    expect(data!.relations.totalCount).toBe(1);
+    expect(data!.relations.edges[0]!.node.id).toBe(entityIds.pg);
+    // The edge should be the last hop's edge (runs_on)
+    expect(data!.relations.edges[0]!.edge.relationType).toBe("runs_on");
+  });
+
+  // 7d. Multi-hop with relationType filter: depends_on at every hop → no results
+  test("relations depth 2 with relationType filters every hop", async () => {
+    const { data, errors } = await gql<{
+      relations: { totalCount: number };
+    }>(`
+      query($entityId: ID!) {
+        relations(entityId: $entityId, direction: OUTGOING, depth: 2, relationType: "depends_on") {
+          totalCount
+        }
+      }
+    `, { entityId: entityIds.rust });
+
+    expect(errors).toBeUndefined();
+    // Second hop is runs_on, not depends_on → no terminal entity
+    expect(data!.relations.totalCount).toBe(0);
+  });
+
+  // 7e. Default depth (1) unchanged
+  test("relations default depth returns direct neighbors only", async () => {
+    const { data, errors } = await gql<{
+      relations: {
+        totalCount: number;
+        edges: Array<{ node: { id: string } }>;
+      };
+    }>(`
+      query($entityId: ID!) {
+        relations(entityId: $entityId, direction: OUTGOING) {
+          totalCount
+          edges { node { id } }
+        }
+      }
+    `, { entityId: entityIds.rust });
+
+    expect(errors).toBeUndefined();
+    expect(data!.relations.totalCount).toBe(1);
+    expect(data!.relations.edges[0]!.node.id).toBe(entityIds.ts);
+  });
+
+  // 7f. Shortest path: Rust → TS → PG
+  test("path finds shortest path between two entities", async () => {
+    const { data, errors } = await gql<{
+      path: Array<{ entity: { id: string }; edge: { relationType: string } | null }>;
+    }>(`
+      query($from: ID!, $to: ID!) {
+        path(fromId: $from, toId: $to) {
+          entity { id }
+          edge { relationType }
+        }
+      }
+    `, { from: entityIds.rust, to: entityIds.pg });
+
+    expect(errors).toBeUndefined();
+    expect(data!.path.length).toBe(3);
+    // First step: start entity (no edge)
+    expect(data!.path[0]!.entity.id).toBe(entityIds.rust);
+    expect(data!.path[0]!.edge).toBeNull();
+    // Middle step
+    expect(data!.path[1]!.entity.id).toBe(entityIds.ts);
+    expect(data!.path[1]!.edge).toBeTruthy();
+    // Last step
+    expect(data!.path[2]!.entity.id).toBe(entityIds.pg);
+    expect(data!.path[2]!.edge).toBeTruthy();
+  });
+
+  // 7g. Path with no connection → empty array
+  test("path returns empty array when no path exists", async () => {
+    // Create an isolated entity
+    const { data: created } = await gql<{ createEntity: { id: string } }>(`
+      mutation {
+        createEntity(input: { content: "Isolated node", labels: ["test"] }) { id }
+      }
+    `);
+
+    const { data, errors } = await gql<{
+      path: Array<{ entity: { id: string } }>;
+    }>(`
+      query($from: ID!, $to: ID!) {
+        path(fromId: $from, toId: $to) {
+          entity { id }
+        }
+      }
+    `, { from: entityIds.rust, to: created!.createEntity.id });
+
+    expect(errors).toBeUndefined();
+    expect(data!.path).toEqual([]);
+
+    // Cleanup
+    await gql(`mutation($id: ID!) { deleteEntity(id: $id) }`, { id: created!.createEntity.id });
   });
 
   // 8. Relation keys list
@@ -188,7 +326,7 @@ describe("Databank E2E", () => {
     }>(`{ relationKeys { edges { node { name usageCount } } } }`);
 
     expect(errors).toBeUndefined();
-    const runsOn = data!.relationKeys.edges.find((e) => e.node.name === "RUNS_ON");
+    const runsOn = data!.relationKeys.edges.find((e) => e.node.name === "runs_on");
     expect(runsOn).toBeTruthy();
     expect(runsOn!.node.usageCount).toBe(1);
   });
@@ -216,40 +354,45 @@ describe("Databank E2E", () => {
       registerRelation: { name: string; description: string };
     }>(`
       mutation {
-        registerRelation(name: "DEPENDS_ON", description: "A dependency relationship between software components") {
+        registerRelation(name: "depends_on", description: "A dependency relationship between software components") {
           name description
         }
       }
     `);
 
     expect(errors).toBeUndefined();
-    expect(data!.registerRelation.name).toBe("DEPENDS_ON");
+    expect(data!.registerRelation.name).toBe("depends_on");
     expect(data!.registerRelation.description).toBe("A dependency relationship between software components");
   });
 
-  // 11. Orphans — Rust has no edges
+  // 11. Orphans — all entities have edges now
   test("orphans returns unconnected entities", async () => {
     const { data, errors } = await gql<{
       orphans: { totalCount: number; edges: Array<{ node: { id: string } }> };
     }>(`{ orphans { totalCount edges { node { id } } } }`);
 
     expect(errors).toBeUndefined();
-    expect(data!.orphans.totalCount).toBeGreaterThanOrEqual(1);
+    // All 3 entities have edges now (Rust→TS→PG)
     const ids = data!.orphans.edges.map((e) => e.node.id);
-    expect(ids).toContain(entityIds.rust);
-    // TS and PG have edges, so they should NOT be orphans
     expect(ids).not.toContain(entityIds.ts);
+    expect(ids).not.toContain(entityIds.rust);
     expect(ids).not.toContain(entityIds.pg);
   });
 
-  // 12. Delete edge + entity
+  // 12. Delete edges + entity
   test("deleteEdge and deleteEntity work", async () => {
-    // Delete the edge
-    const delEdge = await gql<{ deleteEdge: boolean }>(`
+    // Delete both edges
+    const delEdge1 = await gql<{ deleteEdge: boolean }>(`
       mutation($id: ID!) { deleteEdge(id: $id) }
     `, { id: edgeId });
-    expect(delEdge.errors).toBeUndefined();
-    expect(delEdge.data!.deleteEdge).toBe(true);
+    expect(delEdge1.errors).toBeUndefined();
+    expect(delEdge1.data!.deleteEdge).toBe(true);
+
+    const delEdge2 = await gql<{ deleteEdge: boolean }>(`
+      mutation($id: ID!) { deleteEdge(id: $id) }
+    `, { id: edgeId2 });
+    expect(delEdge2.errors).toBeUndefined();
+    expect(delEdge2.data!.deleteEdge).toBe(true);
 
     // Delete an entity
     const delEntity = await gql<{ deleteEntity: boolean }>(`
@@ -263,6 +406,6 @@ describe("Databank E2E", () => {
       schema: { entityCount: number; edgeCount: number };
     }>(`{ schema { entityCount edgeCount } }`);
     expect(data!.schema.entityCount).toBe(2); // TS + PG remain
-    expect(data!.schema.edgeCount).toBe(0); // edge deleted
+    expect(data!.schema.edgeCount).toBe(0); // both edges deleted
   });
 });

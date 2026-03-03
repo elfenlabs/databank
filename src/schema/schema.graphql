@@ -106,7 +106,7 @@ type EntityConnection {
 """Traversal result: adjacent entity + full edge object."""
 type RelationEdge {
   node: Entity!
-  """Full edge object (id, properties, temporal validity)."""
+  """Full edge object (id, properties, temporal validity). At depth > 1, this is the last hop's edge."""
   edge: Edge!
   """Cosine similarity when `targetSearch` is active; null otherwise."""
   score: Float
@@ -117,6 +117,13 @@ type RelationConnection {
   edges: [RelationEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+"""A single step in a path between two entities."""
+type PathStep {
+  entity: Entity!
+  """The edge traversed to reach this entity. Null for the starting entity."""
+  edge: Edge
 }
 
 """Named entry in a registry (relation types or property keys)."""
@@ -173,6 +180,9 @@ type Query {
 
   """
   Traverse the graph from an entity, returning adjacent entities and full edge objects.
+  At depth 1 (default), returns direct neighbors. At depth > 1, returns only terminal
+  entities reachable in exactly N hops. `relationType` and `temporal` filter every hop;
+  `targetLabels` and `targetSearch` filter only terminal entities.
   Sorted by edge creation time (desc).
   """
   relations(
@@ -184,9 +194,24 @@ type Query {
     targetSearch: SemanticSearch
     direction: Direction = OUTGOING
     temporal: TemporalFilter
+    """Traversal depth. 1 = direct neighbors (default). Max 5."""
+    depth: Int = 1
     first: Int = 10
     after: String
   ): RelationConnection!
+
+  """
+  Find the shortest path between two entities.
+  Always traverses bidirectionally. Returns empty array if no path exists within maxDepth.
+  """
+  path(
+    fromId: ID!
+    toId: ID!
+    """Maximum hops to search. Default 5, max 5."""
+    maxDepth: Int = 5
+    """Optional: only traverse edges of this relation type."""
+    relationType: String
+  ): [PathStep!]!
 
   """Browse or search relation type registry. Default sort: usage count (desc)."""
   relationKeys(

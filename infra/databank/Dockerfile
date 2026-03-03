@@ -20,9 +20,10 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-# Copy app source and migrations
+# Copy app source, migrations, and seeds
 COPY src/ src/
 COPY db/migrations/ db/migrations/
+COPY db/seeds/ db/seeds/
 
 # Bake the pgvector init script
 COPY infra/databank/init.sql /docker-entrypoint-initdb.d/init.sql

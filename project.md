@@ -4,7 +4,7 @@
 
 The "Databank" is a headless, API-first Retrieval-Augmented Generation (RAG) backend. It acts as a dedicated structural and semantic memory store, combining **relational graph topology** with **vector-based semantic search** in a single PostgreSQL database.
 
-Crucially, the Databank is "dumb"—it hosts no Large Language Models (LLMs) for reasoning or text generation. It strictly manages data ingestion, embedding, vector search, and single-hop relationship queries. Multi-hop traversals are handled externally by an intelligent agent via **round-trip exploration**. By decoupling the storage/retrieval layer from the reasoning layer, consumer applications and background maintenance workers can scale and swap LLMs independently.
+Crucially, the Databank is "dumb"—it hosts no Large Language Models (LLMs) for reasoning or text generation. It manages data ingestion, embedding, vector search, bounded multi-hop relationship traversal, and shortest-path queries. Complex reasoning chains are handled externally by an intelligent agent. Multi-hop traversals are bounded (max depth 5) and use PostgreSQL recursive CTEs — no graph database required. By decoupling the storage/retrieval layer from the reasoning layer, consumer applications and background maintenance workers can scale and swap LLMs independently.
 
 ## 2. System Architecture & Actors
 

@@ -33,5 +33,20 @@ fi
 # 3. Run dbmate migrations
 dbmate --no-dump-schema up
 
-# 4. Start the Databank app (replaces this shell, becomes PID 1 equivalent)
+# 4. Seed starter data (requires the app + embedder to be running)
+bun run src/index.ts &
+APP_PID=$!
+
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:4000/graphql -o /dev/null 2>/dev/null; then
+    break
+  fi
+  sleep 0.5
+done
+
+DATABANK_URL="http://localhost:4000/graphql" bun run db/seeds/load.ts || true
+kill $APP_PID 2>/dev/null || true
+wait $APP_PID 2>/dev/null || true
+
+# 5. Start the Databank app (replaces this shell, becomes PID 1 equivalent)
 exec bun run src/index.ts
