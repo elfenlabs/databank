@@ -33,7 +33,7 @@ export const resolvers = mergeResolvers(
   {
     Node: {
       __resolveType(obj: any) {
-        if ("content" in obj) return "Entity";
+        if ("name" in obj) return "Entity";
         if ("sourceId" in obj || "source_id" in obj) return "Edge";
         return null;
       },

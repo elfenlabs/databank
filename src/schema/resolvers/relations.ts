@@ -169,9 +169,9 @@ async function resolveMultiHop(
     if (entityIds.length > 0) {
       const simResults = await ctx.db
         .selectFrom("entities")
-        .select(["id", sql<number>`1 - (content_vector <=> ${targetVecLiteral}::vector)`.as("sim")])
+        .select(["id", sql<number>`1 - (embedding <=> ${targetVecLiteral}::vector)`.as("sim")])
         .where("id", "in", entityIds)
-        .where(sql`1 - (content_vector <=> ${targetVecLiteral}::vector)`, ">=", args.targetSearch.threshold)
+        .where(sql`1 - (embedding <=> ${targetVecLiteral}::vector)`, ">=", args.targetSearch.threshold)
         .execute();
       const simMap = new Map(simResults.map((r) => [r.id, r.sim]));
       terminalRows = terminalRows.filter((r) => simMap.has(r.entity_id));
@@ -198,7 +198,7 @@ async function resolveMultiHop(
       if (targetVecLiteral) {
         const simResult = await ctx.db
           .selectFrom("entities")
-          .select(sql<number>`1 - (content_vector <=> ${targetVecLiteral}::vector)`.as("sim"))
+          .select(sql<number>`1 - (embedding <=> ${targetVecLiteral}::vector)`.as("sim"))
           .where("id", "=", row.entity_id)
           .executeTakeFirstOrThrow();
         score = simResult.sim;
@@ -316,7 +316,7 @@ export const relationResolvers = {
             .selectFrom("entities")
             .select("id")
             .where(
-              sql`1 - (content_vector <=> ${targetVecLiteral}::vector)`,
+              sql`1 - (embedding <=> ${targetVecLiteral}::vector)`,
               ">=",
               args.targetSearch.threshold,
             ),
@@ -420,7 +420,7 @@ export const relationResolvers = {
             const simResult = await ctx.db
               .selectFrom("entities")
               .select(
-                sql<number>`1 - (content_vector <=> ${targetVecLiteral}::vector)`.as("sim"),
+                sql<number>`1 - (embedding <=> ${targetVecLiteral}::vector)`.as("sim"),
               )
               .where("id", "=", targetEntityId)
               .executeTakeFirstOrThrow();

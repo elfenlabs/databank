@@ -50,7 +50,7 @@ export const maintenanceResolvers = {
       args: { threshold: number },
       ctx: GraphContext,
     ) {
-      // Find entity pairs with high content vector similarity but no direct edge
+      // Find entity pairs with high embedding similarity but no direct edge
       const rows = await ctx.db
         .selectFrom("entities as a")
         .innerJoin("entities as b", (join) =>
@@ -58,17 +58,19 @@ export const maintenanceResolvers = {
         )
         .select([
           "a.id as a_id",
-          "a.content as a_content",
+          "a.name as a_name",
+          "a.details as a_details",
           "a.created_at as a_created_at",
           "b.id as b_id",
-          "b.content as b_content",
+          "b.name as b_name",
+          "b.details as b_details",
           "b.created_at as b_created_at",
-          sql<number>`1 - (a.content_vector <=> b.content_vector)`.as(
+          sql<number>`1 - (a.embedding <=> b.embedding)`.as(
             "similarity",
           ),
         ])
         .where(
-          sql`1 - (a.content_vector <=> b.content_vector)`,
+          sql`1 - (a.embedding <=> b.embedding)`,
           ">=",
           args.threshold,
         )
@@ -88,12 +90,14 @@ export const maintenanceResolvers = {
           const [entityA, entityB] = await Promise.all([
             resolveEntity(ctx.db, {
               id: row.a_id,
-              content: row.a_content,
+              name: row.a_name,
+              details: (row as any).a_details,
               created_at: row.a_created_at,
             }),
             resolveEntity(ctx.db, {
               id: row.b_id,
-              content: row.b_content,
+              name: row.b_name,
+              details: (row as any).b_details,
               created_at: row.b_created_at,
             }),
           ]);

@@ -48,37 +48,41 @@ describe("Databank E2E", () => {
   // 2. Create entities with traits
   test("createEntity returns correct fields with traits", async () => {
     const { data, errors } = await gql<{
-      ts: { id: string; content: string; traits: Array<{ name: string; properties: Record<string, string> }> };
-      rust: { id: string; content: string; traits: Array<{ name: string }> };
-      pg: { id: string; content: string; traits: Array<{ name: string }> };
+      ts: { id: string; name: string; details: string; traits: Array<{ name: string; properties: Record<string, string> }> };
+      rust: { id: string; name: string; traits: Array<{ name: string }> };
+      pg: { id: string; name: string; traits: Array<{ name: string }> };
     }>(`
       mutation {
         ts: createEntity(input: {
-          content: "TypeScript is a typed superset of JavaScript"
+          name: "TypeScript"
+          details: "A typed superset of JavaScript"
           traits: [
             { name: "item", properties: { name: "TypeScript", version: "5.0" } },
             { name: "concept" }
           ]
-        }) { id content traits { name properties } }
+        }) { id name details traits { name properties } }
 
         rust: createEntity(input: {
-          content: "Rust is a systems programming language focused on safety"
+          name: "Rust"
+          details: "A systems programming language focused on safety"
           traits: [
             { name: "item", properties: { name: "Rust" } }
           ]
-        }) { id content traits { name } }
+        }) { id name traits { name } }
 
         pg: createEntity(input: {
-          content: "PostgreSQL is a powerful relational database"
+          name: "PostgreSQL"
+          details: "A powerful relational database"
           traits: [
             { name: "item", properties: { name: "PostgreSQL" } }
           ]
-        }) { id content traits { name } }
+        }) { id name traits { name } }
       }
     `);
 
     expect(errors).toBeUndefined();
-    expect(data!.ts.content).toBe("TypeScript is a typed superset of JavaScript");
+    expect(data!.ts.name).toBe("TypeScript");
+    expect(data!.ts.details).toBe("A typed superset of JavaScript");
     expect(data!.ts.traits.length).toBe(2);
     const itemTrait = data!.ts.traits.find((t) => t.name === "item");
     expect(itemTrait).toBeTruthy();
@@ -99,7 +103,7 @@ describe("Databank E2E", () => {
     const { errors } = await gql(`
       mutation {
         createEntity(input: {
-          content: "Should fail"
+          name: "Should fail"
           traits: [
             { name: "person", properties: { name: "Alice", unknown_field: "bad" } }
           ]
@@ -115,11 +119,11 @@ describe("Databank E2E", () => {
   // 4. Filter by trait + properties
   test("entities filters by traitFilter", async () => {
     const { data, errors } = await gql<{
-      entities: { totalCount: number; edges: Array<{ node: { id: string; content: string } }> };
+      entities: { totalCount: number; edges: Array<{ node: { id: string; name: string } }> };
     }>(`{
       entities(traitFilter: [{ trait: "item", properties: { name: "TypeScript" } }], first: 10) {
         totalCount
-        edges { node { id content } }
+        edges { node { id name } }
       }
     }`);
 
@@ -306,7 +310,7 @@ describe("Databank E2E", () => {
     // Create an isolated entity
     const { data: created } = await gql<{ createEntity: { id: string } }>(`
       mutation {
-        createEntity(input: { content: "Isolated node", traits: [{ name: "concept" }] }) { id }
+        createEntity(input: { name: "Isolated node", traits: [{ name: "concept" }] }) { id }
       }
     `);
 

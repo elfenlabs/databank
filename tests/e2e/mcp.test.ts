@@ -86,9 +86,9 @@ describe("MCP Server E2E", () => {
       arguments: {
         query: `mutation {
           createEntity(input: {
-            content: "MCP test entity"
+            name: "MCP test entity"
             traits: [{ name: "concept", properties: { name: "mcp-e2e" } }]
-          }) { id content traits { name properties } }
+          }) { id name traits { name properties } }
         }`,
       },
     });
@@ -96,7 +96,7 @@ describe("MCP Server E2E", () => {
     expect(result.isError).toBeFalsy();
     const content = result.content as Array<{ type: string; text: string }>;
     const json = JSON.parse(content[0]!.text);
-    expect(json.data.createEntity.content).toBe("MCP test entity");
+    expect(json.data.createEntity.name).toBe("MCP test entity");
     expect(json.data.createEntity.traits[0].name).toBe("concept");
     expect(json.data.createEntity.traits[0].properties).toEqual({ name: "mcp-e2e" });
   });
@@ -108,7 +108,7 @@ describe("MCP Server E2E", () => {
         query: `query($filter: [TraitFilter!], $first: Int!) {
           entities(traitFilter: $filter, first: $first) {
             totalCount
-            edges { node { id content } }
+            edges { node { id name } }
           }
         }`,
         variables: { filter: [{ trait: "concept", properties: { name: "mcp-e2e" } }], first: 10 },

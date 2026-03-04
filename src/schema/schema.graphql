@@ -29,14 +29,16 @@ input TraitInput {
 }
 
 input CreateEntityInput {
-  """Text content, automatically embedded for semantic search."""
-  content: String!
+  name: String!
+  """Optional rich context. Combined with name for embedding."""
+  details: String
   traits: [TraitInput!]!
 }
 
 """Only provided fields are changed; omitted fields are preserved."""
 input UpdateEntityInput {
-  content: String
+  name: String
+  details: String
   """Replaces all trait assignments when set."""
   traits: [TraitInput!]
 }
@@ -51,7 +53,7 @@ input CreateEdgeInput {
   validTo: DateTime
 }
 
-"""Cosine similarity filter. Embeds the query and matches against content vectors."""
+"""Cosine similarity filter. Embeds the query and matches against entity embeddings."""
 input SemanticSearch {
   query: String!
   """Minimum cosine similarity (0.0–1.0)."""
@@ -65,10 +67,11 @@ input TraitFilter {
   properties: JSON
 }
 
-"""Knowledge entity with content and typed trait assignments."""
+"""Knowledge entity with typed trait assignments."""
 type Entity implements Node {
   id: ID!
-  content: String!
+  name: String!
+  details: String
   traits: [EntityTrait!]!
   createdAt: DateTime!
 }
@@ -217,7 +220,7 @@ type Query {
     relationType: String
     """OR — targets with any of these traits."""
     targetTraits: [String!]
-    """Semantic filter on target content. Populates `score` in results."""
+    """Semantic filter on target entities. Populates `score` in results."""
     targetSearch: SemanticSearch
     direction: Direction = OUTGOING
     temporal: TemporalFilter
@@ -263,7 +266,7 @@ type Query {
   """Entities with no edges. Sorted by creation time (desc)."""
   orphans(first: Int = 20, after: String): EntityConnection!
 
-  """Entity pairs with high content similarity but no direct edge. Max 50 pairs."""
+  """Entity pairs with high embedding similarity but no direct edge. Max 50 pairs."""
   similarPairs(threshold: Float!): [SimilarPair!]!
 
   schema: SchemaInfo!

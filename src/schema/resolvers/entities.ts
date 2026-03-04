@@ -10,6 +10,15 @@ import {
 import { resolveEntity, resolveEntities } from "./shared.ts";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Build the text that gets embedded: "{name}: {details}" or just "{name}". */
+function embedText(name: string, details?: string | null): string {
+  return details ? `${name}: ${details}` : name;
+}
+
+// ---------------------------------------------------------------------------
 // Validation helpers
 // ---------------------------------------------------------------------------
 
@@ -110,7 +119,7 @@ export const entityResolvers = {
         const queryVector = await embed(args.search.query);
         vecLiteral = toVectorLiteral(queryVector);
         query = query.where(
-          sql`1 - (content_vector <=> ${vecLiteral}::vector)`,
+          sql`1 - (embedding <=> ${vecLiteral}::vector)`,
           ">=",
           args.search.threshold,
         );
@@ -127,10 +136,10 @@ export const entityResolvers = {
       if (vecLiteral) {
         dataQuery = dataQuery
           .select(
-            sql<number>`1 - (content_vector <=> ${vecLiteral}::vector)`.as("score"),
+            sql<number>`1 - (embedding <=> ${vecLiteral}::vector)`.as("score"),
           )
           .orderBy(
-            sql`content_vector <=> ${vecLiteral}::vector`,
+            sql`embedding <=> ${vecLiteral}::vector`,
             "asc",
           ) as any;
       } else {
@@ -151,7 +160,8 @@ export const entityResolvers = {
       _: unknown,
       args: {
         input: {
-          content: string;
+          name: string;
+          details?: string | null;
           traits: Array<{ name: string; properties?: Record<string, unknown> }>;
         };
       },
@@ -160,15 +170,17 @@ export const entityResolvers = {
       // Validate traits + property keys
       await validateTraits(ctx, args.input.traits);
 
-      // Embed content
-      const contentVector = toVectorLiteral(await embed(args.input.content));
+      // Embed composite text
+      const text = embedText(args.input.name, args.input.details);
+      const vector = toVectorLiteral(await embed(text));
 
       // Insert entity
       const entity = await ctx.db
         .insertInto("entities")
         .values({
-          content: args.input.content,
-          content_vector: sql`${contentVector}::vector`,
+          name: args.input.name,
+          details: args.input.details ?? null,
+          embedding: sql`${vector}::vector`,
         } as any)
         .returningAll()
         .executeTakeFirstOrThrow();
@@ -202,7 +214,8 @@ export const entityResolvers = {
       args: {
         id: string;
         input: {
-          content?: string;
+          name?: string;
+          details?: string;
           traits?: Array<{ name: string; properties?: Record<string, unknown> }>;
         };
       },
@@ -210,14 +223,26 @@ export const entityResolvers = {
     ) {
       const { id, input } = args;
 
-      // Re-embed content if changed
-      if (input.content != null) {
-        const contentVector = toVectorLiteral(await embed(input.content));
+      // Re-embed if name or details changed
+      if (input.name != null || input.details != null) {
+        // Fetch current row to combine with partial update
+        const current = await ctx.db
+          .selectFrom("entities")
+          .select(["name", "details"])
+          .where("id", "=", id)
+          .executeTakeFirstOrThrow();
+
+        const newName = input.name ?? current.name;
+        const newDetails = input.details !== undefined ? input.details : current.details;
+        const text = embedText(newName, newDetails);
+        const vector = toVectorLiteral(await embed(text));
+
         await ctx.db
           .updateTable("entities")
           .set({
-            content: input.content,
-            content_vector: sql`${contentVector}::vector`,
+            name: newName,
+            details: newDetails,
+            embedding: sql`${vector}::vector`,
           } as any)
           .where("id", "=", id)
           .execute();
