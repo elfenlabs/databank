@@ -32,7 +32,7 @@ export interface TraitPropertiesTable {
 export interface EntitiesTable {
   id: Generated<string>;
   name: string;
-  details: string | null;
+  description: string | null;
   embedding: Vector | null;
   created_at: ColumnType<Date, Date | undefined, never>;
 }

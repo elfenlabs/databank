@@ -13,9 +13,9 @@ import { resolveEntity, resolveEntities } from "./shared.ts";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build the text that gets embedded: "{name}: {details}" or just "{name}". */
-function embedText(name: string, details?: string | null): string {
-  return details ? `${name}: ${details}` : name;
+/** Build the text that gets embedded: "{name}: {description}" or just "{name}". */
+function embedText(name: string, description?: string | null): string {
+  return description ? `${name}: ${description}` : name;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +161,7 @@ export const entityResolvers = {
       args: {
         input: {
           name: string;
-          details?: string | null;
+          description?: string | null;
           traits: Array<{ name: string; properties?: Record<string, unknown> }>;
         };
       },
@@ -171,7 +171,7 @@ export const entityResolvers = {
       await validateTraits(ctx, args.input.traits);
 
       // Embed composite text
-      const text = embedText(args.input.name, args.input.details);
+      const text = embedText(args.input.name, args.input.description);
       const vector = toVectorLiteral(await embed(text));
 
       // Insert entity
@@ -179,7 +179,7 @@ export const entityResolvers = {
         .insertInto("entities")
         .values({
           name: args.input.name,
-          details: args.input.details ?? null,
+          description: args.input.description ?? null,
           embedding: sql`${vector}::vector`,
         } as any)
         .returningAll()
@@ -215,7 +215,7 @@ export const entityResolvers = {
         id: string;
         input: {
           name?: string;
-          details?: string;
+          description?: string;
           traits?: Array<{ name: string; properties?: Record<string, unknown> }>;
         };
       },
@@ -223,17 +223,17 @@ export const entityResolvers = {
     ) {
       const { id, input } = args;
 
-      // Re-embed if name or details changed
-      if (input.name != null || input.details != null) {
+      // Re-embed if name or description changed
+      if (input.name != null || input.description != null) {
         // Fetch current row to combine with partial update
         const current = await ctx.db
           .selectFrom("entities")
-          .select(["name", "details"])
+          .select(["name", "description"])
           .where("id", "=", id)
           .executeTakeFirstOrThrow();
 
         const newName = input.name ?? current.name;
-        const newDetails = input.details !== undefined ? input.details : current.details;
+        const newDetails = input.description !== undefined ? input.description : current.description;
         const text = embedText(newName, newDetails);
         const vector = toVectorLiteral(await embed(text));
 
@@ -241,7 +241,7 @@ export const entityResolvers = {
           .updateTable("entities")
           .set({
             name: newName,
-            details: newDetails,
+            description: newDetails,
             embedding: sql`${vector}::vector`,
           } as any)
           .where("id", "=", id)

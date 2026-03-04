@@ -31,14 +31,14 @@ input TraitInput {
 input CreateEntityInput {
   name: String!
   """Optional rich context. Combined with name for embedding."""
-  details: String
+  description: String
   traits: [TraitInput!]!
 }
 
 """Only provided fields are changed; omitted fields are preserved."""
 input UpdateEntityInput {
   name: String
-  details: String
+  description: String
   """Replaces all trait assignments when set."""
   traits: [TraitInput!]
 }
@@ -71,7 +71,7 @@ input TraitFilter {
 type Entity implements Node {
   id: ID!
   name: String!
-  details: String
+  description: String
   traits: [EntityTrait!]!
   createdAt: DateTime!
 }

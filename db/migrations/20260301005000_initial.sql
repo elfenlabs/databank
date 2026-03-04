@@ -30,7 +30,7 @@ CREATE TABLE trait_properties (
 CREATE TABLE entities (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name            TEXT NOT NULL,
-  details         TEXT,
+  description     TEXT,
   embedding       vector(384),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

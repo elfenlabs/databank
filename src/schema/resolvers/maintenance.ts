@@ -59,11 +59,11 @@ export const maintenanceResolvers = {
         .select([
           "a.id as a_id",
           "a.name as a_name",
-          "a.details as a_details",
+          "a.description as a_description",
           "a.created_at as a_created_at",
           "b.id as b_id",
           "b.name as b_name",
-          "b.details as b_details",
+          "b.description as b_description",
           "b.created_at as b_created_at",
           sql<number>`1 - (a.embedding <=> b.embedding)`.as(
             "similarity",
@@ -91,13 +91,13 @@ export const maintenanceResolvers = {
             resolveEntity(ctx.db, {
               id: row.a_id,
               name: row.a_name,
-              details: (row as any).a_details,
+              description: (row as any).a_description,
               created_at: row.a_created_at,
             }),
             resolveEntity(ctx.db, {
               id: row.b_id,
               name: row.b_name,
-              details: (row as any).b_details,
+              description: (row as any).b_description,
               created_at: row.b_created_at,
             }),
           ]);

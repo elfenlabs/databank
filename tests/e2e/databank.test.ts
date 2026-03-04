@@ -48,23 +48,23 @@ describe("Databank E2E", () => {
   // 2. Create entities with traits
   test("createEntity returns correct fields with traits", async () => {
     const { data, errors } = await gql<{
-      ts: { id: string; name: string; details: string; traits: Array<{ name: string; properties: Record<string, string> }> };
+      ts: { id: string; name: string; description: string; traits: Array<{ name: string; properties: Record<string, string> }> };
       rust: { id: string; name: string; traits: Array<{ name: string }> };
       pg: { id: string; name: string; traits: Array<{ name: string }> };
     }>(`
       mutation {
         ts: createEntity(input: {
           name: "TypeScript"
-          details: "A typed superset of JavaScript"
+          description: "A typed superset of JavaScript"
           traits: [
             { name: "item", properties: { name: "TypeScript", version: "5.0" } },
             { name: "concept" }
           ]
-        }) { id name details traits { name properties } }
+        }) { id name description traits { name properties } }
 
         rust: createEntity(input: {
           name: "Rust"
-          details: "A systems programming language focused on safety"
+          description: "A systems programming language focused on safety"
           traits: [
             { name: "item", properties: { name: "Rust" } }
           ]
@@ -72,7 +72,7 @@ describe("Databank E2E", () => {
 
         pg: createEntity(input: {
           name: "PostgreSQL"
-          details: "A powerful relational database"
+          description: "A powerful relational database"
           traits: [
             { name: "item", properties: { name: "PostgreSQL" } }
           ]
@@ -82,7 +82,7 @@ describe("Databank E2E", () => {
 
     expect(errors).toBeUndefined();
     expect(data!.ts.name).toBe("TypeScript");
-    expect(data!.ts.details).toBe("A typed superset of JavaScript");
+    expect(data!.ts.description).toBe("A typed superset of JavaScript");
     expect(data!.ts.traits.length).toBe(2);
     const itemTrait = data!.ts.traits.find((t) => t.name === "item");
     expect(itemTrait).toBeTruthy();

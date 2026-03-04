@@ -6,7 +6,7 @@ import type { Database } from "../../db/types.ts";
  */
 export async function resolveEntity(
   db: Kysely<Database>,
-  row: { id: string; name: string; details: string | null; created_at: Date },
+  row: { id: string; name: string; description: string | null; created_at: Date },
 ) {
   const traitRows = await db
     .selectFrom("entity_traits")
@@ -17,7 +17,7 @@ export async function resolveEntity(
   return {
     id: row.id,
     name: row.name,
-    details: row.details,
+    description: row.description,
     traits: traitRows.map((t) => ({
       name: t.trait_name,
       properties: t.properties ?? {},
@@ -31,7 +31,7 @@ export async function resolveEntity(
  */
 export async function resolveEntities(
   db: Kysely<Database>,
-  rows: Array<{ id: string; name: string; details: string | null; created_at: Date }>,
+  rows: Array<{ id: string; name: string; description: string | null; created_at: Date }>,
 ) {
   return Promise.all(rows.map((r) => resolveEntity(db, r)));
 }
