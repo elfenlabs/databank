@@ -1,4 +1,5 @@
 import { sql } from "kysely";
+import { GraphQLError } from "graphql";
 import { embed, embedBatch } from "../../embedder/client.ts";
 import {
   decodeCursor,
@@ -8,14 +9,71 @@ import {
 } from "../context.ts";
 import { resolveEntity, resolveEntities } from "./shared.ts";
 
+// ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate that all trait names exist and all property keys are allowed.
+ * Throws GraphQLError on any violation.
+ */
+async function validateTraits(
+  ctx: GraphContext,
+  traits: Array<{ name: string; properties?: Record<string, unknown> | null }>,
+) {
+  if (traits.length === 0) return;
+
+  const traitNames = traits.map((t) => t.name);
+
+  // 1. Check all trait names exist
+  const existing = await ctx.db
+    .selectFrom("traits")
+    .select("name")
+    .where("name", "in", traitNames)
+    .execute();
+
+  const existingSet = new Set(existing.map((r) => r.name));
+  const missing = traitNames.filter((n) => !existingSet.has(n));
+  if (missing.length > 0) {
+    throw new GraphQLError(
+      `Unknown trait(s): ${missing.join(", ")}`,
+      { extensions: { code: "BAD_REQUEST" } },
+    );
+  }
+
+  // 2. For each trait with properties, validate keys against trait_properties
+  for (const trait of traits) {
+    const props = trait.properties;
+    if (!props || Object.keys(props).length === 0) continue;
+
+    const allowedKeys = await ctx.db
+      .selectFrom("trait_properties")
+      .select("key")
+      .where("trait_name", "=", trait.name)
+      .execute();
+
+    const allowedSet = new Set(allowedKeys.map((r) => r.key));
+    const unknown = Object.keys(props).filter((k) => !allowedSet.has(k));
+    if (unknown.length > 0) {
+      throw new GraphQLError(
+        `Trait '${trait.name}' does not define property key(s): ${unknown.join(", ")}`,
+        { extensions: { code: "BAD_REQUEST" } },
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Resolvers
+// ---------------------------------------------------------------------------
+
 export const entityResolvers = {
   Query: {
     async entities(
       _: unknown,
       args: {
         search?: { query: string; threshold: number };
-        labels?: string[];
-        properties?: Array<{ key: string; value: string }>;
+        traitFilter?: Array<{ trait: string; properties?: Record<string, unknown> }>;
         first: number;
         after?: string;
       },
@@ -26,25 +84,23 @@ export const entityResolvers = {
 
       let query = ctx.db.selectFrom("entities");
 
-      // Labels filter (cheap, indexed)
-      if (args.labels && args.labels.length > 0) {
-        query = query.where(
-          "entities.id",
-          "in",
-          ctx.db
-            .selectFrom("entity_labels")
+      // Trait filter: each filter is an AND (entity must match all)
+      if (args.traitFilter && args.traitFilter.length > 0) {
+        for (const filter of args.traitFilter) {
+          let subquery = ctx.db
+            .selectFrom("entity_traits")
             .select("entity_id")
-            .where("label", "in", args.labels),
-        );
-      }
+            .where("trait_name", "=", filter.trait);
 
-      // Properties filter (JSONB containment, GIN-indexed) — each filter is an AND
-      if (args.properties && args.properties.length > 0) {
-        for (const { key, value } of args.properties) {
-          const jsonFilter = JSON.stringify({ [key]: value });
-          query = query.where(({ eb }) =>
-            eb(sql`properties @> ${jsonFilter}::jsonb`, "=", sql`true`),
-          ) as any;
+          // Optional JSONB containment on trait properties
+          if (filter.properties && Object.keys(filter.properties).length > 0) {
+            const jsonFilter = JSON.stringify(filter.properties);
+            subquery = subquery.where(({ eb }) =>
+              eb(sql`properties @> ${jsonFilter}::jsonb`, "=", sql`true`),
+            ) as any;
+          }
+
+          query = query.where("entities.id", "in", subquery);
         }
       }
 
@@ -96,40 +152,45 @@ export const entityResolvers = {
       args: {
         input: {
           content: string;
-          labels: string[];
-          properties?: Record<string, string>;
+          traits: Array<{ name: string; properties?: Record<string, unknown> }>;
         };
       },
       ctx: GraphContext,
     ) {
-      // Embed content + labels in one batch call
-      const textsToEmbed = [args.input.content, ...args.input.labels];
-      const vectors = await embedBatch(textsToEmbed);
-      const contentVector = toVectorLiteral(vectors[0]!);
-      const labelVectors = vectors.slice(1);
+      // Validate traits + property keys
+      await validateTraits(ctx, args.input.traits);
 
-      // Insert entity with properties as JSONB
+      // Embed content
+      const contentVector = toVectorLiteral(await embed(args.input.content));
+
+      // Insert entity
       const entity = await ctx.db
         .insertInto("entities")
         .values({
           content: args.input.content,
           content_vector: sql`${contentVector}::vector`,
-          properties: JSON.stringify(args.input.properties ?? {}),
         } as any)
         .returningAll()
         .executeTakeFirstOrThrow();
 
-      // Insert labels
-      if (args.input.labels.length > 0) {
+      // Insert trait assignments
+      if (args.input.traits.length > 0) {
         await ctx.db
-          .insertInto("entity_labels")
+          .insertInto("entity_traits")
           .values(
-            args.input.labels.map((label, i) => ({
+            args.input.traits.map((t) => ({
               entity_id: entity.id,
-              label,
-              label_vector: sql`${toVectorLiteral(labelVectors[i]!)}::vector`,
-            } as any)),
+              trait_name: t.name,
+              properties: JSON.stringify(t.properties ?? {}),
+            })),
           )
+          .execute();
+
+        // Increment usage counts
+        await ctx.db
+          .updateTable("traits")
+          .set({ usage_count: sql`usage_count + 1` })
+          .where("name", "in", args.input.traits.map((t) => t.name))
           .execute();
       }
 
@@ -142,8 +203,7 @@ export const entityResolvers = {
         id: string;
         input: {
           content?: string;
-          labels?: string[];
-          properties?: Record<string, string>;
+          traits?: Array<{ name: string; properties?: Record<string, unknown> }>;
         };
       },
       ctx: GraphContext,
@@ -163,35 +223,51 @@ export const entityResolvers = {
           .execute();
       }
 
-      // Replace labels if provided
-      if (input.labels != null) {
-        await ctx.db
-          .deleteFrom("entity_labels")
+      // Replace traits if provided
+      if (input.traits != null) {
+        await validateTraits(ctx, input.traits);
+
+        // Get old trait names for decrement
+        const oldTraits = await ctx.db
+          .selectFrom("entity_traits")
+          .select("trait_name")
           .where("entity_id", "=", id)
           .execute();
 
-        if (input.labels.length > 0) {
-          const labelVectors = await embedBatch(input.labels);
+        // Delete old trait assignments
+        await ctx.db
+          .deleteFrom("entity_traits")
+          .where("entity_id", "=", id)
+          .execute();
+
+        // Decrement old usage counts
+        if (oldTraits.length > 0) {
           await ctx.db
-            .insertInto("entity_labels")
-            .values(
-              input.labels.map((label, i) => ({
-                entity_id: id,
-                label,
-                label_vector: sql`${toVectorLiteral(labelVectors[i]!)}::vector`,
-              } as any)),
-            )
+            .updateTable("traits")
+            .set({ usage_count: sql`GREATEST(usage_count - 1, 0)` })
+            .where("name", "in", oldTraits.map((t) => t.trait_name))
             .execute();
         }
-      }
 
-      // Replace properties if provided
-      if (input.properties != null) {
-        await ctx.db
-          .updateTable("entities")
-          .set({ properties: JSON.stringify(input.properties) } as any)
-          .where("id", "=", id)
-          .execute();
+        // Insert new trait assignments
+        if (input.traits.length > 0) {
+          await ctx.db
+            .insertInto("entity_traits")
+            .values(
+              input.traits.map((t) => ({
+                entity_id: id,
+                trait_name: t.name,
+                properties: JSON.stringify(t.properties ?? {}),
+              })),
+            )
+            .execute();
+
+          await ctx.db
+            .updateTable("traits")
+            .set({ usage_count: sql`usage_count + 1` })
+            .where("name", "in", input.traits.map((t) => t.name))
+            .execute();
+        }
       }
 
       const row = await ctx.db
@@ -204,6 +280,21 @@ export const entityResolvers = {
     },
 
     async deleteEntity(_: unknown, args: { id: string }, ctx: GraphContext) {
+      // Decrement trait usage counts before deletion
+      const oldTraits = await ctx.db
+        .selectFrom("entity_traits")
+        .select("trait_name")
+        .where("entity_id", "=", args.id)
+        .execute();
+
+      if (oldTraits.length > 0) {
+        await ctx.db
+          .updateTable("traits")
+          .set({ usage_count: sql`GREATEST(usage_count - 1, 0)` })
+          .where("name", "in", oldTraits.map((t) => t.trait_name))
+          .execute();
+      }
+
       const result = await ctx.db
         .deleteFrom("entities")
         .where("id", "=", args.id)

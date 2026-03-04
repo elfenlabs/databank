@@ -1,5 +1,5 @@
 /**
- * Seed loader — registers starter relations via GraphQL mutations.
+ * Seed loader — registers starter traits and relations via GraphQL mutations.
  * Idempotent: safe to re-run on an already-seeded databank.
  *
  * Usage: bun run db/seeds/load.ts
@@ -23,8 +23,26 @@ async function gql(query: string, variables?: Record<string, unknown>) {
 async function main() {
   console.log(`🌱 Seeding databank at ${url}`);
 
-  // Register relations (labels are reference-only, no mutation needed)
-  let registered = 0;
+  // Register traits
+  let traitsRegistered = 0;
+  for (const trait of seeds.traits) {
+    const { data, errors } = await gql(
+      `mutation($name: String!, $desc: String, $keys: [String!]) {
+        registerTrait(name: $name, description: $desc, propertyKeys: $keys) { name }
+      }`,
+      { name: trait.name, desc: trait.description, keys: trait.propertyKeys },
+    );
+
+    if (errors) {
+      console.error(`  ✗ trait ${trait.name}: ${errors[0].message}`);
+    } else {
+      console.log(`  ✓ trait ${data.registerTrait.name} (${trait.propertyKeys.length} props)`);
+      traitsRegistered++;
+    }
+  }
+
+  // Register relations
+  let relationsRegistered = 0;
   for (const rel of seeds.relations) {
     const { data, errors } = await gql(
       `mutation($name: String!, $desc: String) {
@@ -34,15 +52,14 @@ async function main() {
     );
 
     if (errors) {
-      console.error(`  ✗ ${rel.name}: ${errors[0].message}`);
+      console.error(`  ✗ relation ${rel.name}: ${errors[0].message}`);
     } else {
-      console.log(`  ✓ ${data.registerRelation.name}`);
-      registered++;
+      console.log(`  ✓ relation ${data.registerRelation.name}`);
+      relationsRegistered++;
     }
   }
 
-  console.log(`\n🌱 Done — ${registered}/${seeds.relations.length} relations registered`);
-  console.log(`📋 Starter labels (reference): ${seeds.labels.join(", ")}`);
+  console.log(`\n🌱 Done — ${traitsRegistered}/${seeds.traits.length} traits, ${relationsRegistered}/${seeds.relations.length} relations registered`);
 }
 
 main().catch((err) => {

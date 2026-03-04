@@ -87,9 +87,8 @@ describe("MCP Server E2E", () => {
         query: `mutation {
           createEntity(input: {
             content: "MCP test entity"
-            labels: ["test"]
-            properties: { source: "mcp-e2e" }
-          }) { id content labels properties }
+            traits: [{ name: "concept", properties: { name: "mcp-e2e" } }]
+          }) { id content traits { name properties } }
         }`,
       },
     });
@@ -98,21 +97,21 @@ describe("MCP Server E2E", () => {
     const content = result.content as Array<{ type: string; text: string }>;
     const json = JSON.parse(content[0]!.text);
     expect(json.data.createEntity.content).toBe("MCP test entity");
-    expect(json.data.createEntity.labels).toEqual(["test"]);
-    expect(json.data.createEntity.properties).toEqual({ source: "mcp-e2e" });
+    expect(json.data.createEntity.traits[0].name).toBe("concept");
+    expect(json.data.createEntity.traits[0].properties).toEqual({ name: "mcp-e2e" });
   });
 
   test("databank_query supports variables", async () => {
     const result = await client.callTool({
       name: "databank_query",
       arguments: {
-        query: `query($props: [PropertyFilter!], $first: Int!) {
-          entities(properties: $props, first: $first) {
+        query: `query($filter: [TraitFilter!], $first: Int!) {
+          entities(traitFilter: $filter, first: $first) {
             totalCount
             edges { node { id content } }
           }
         }`,
-        variables: { props: [{ key: "source", value: "mcp-e2e" }], first: 10 },
+        variables: { filter: [{ trait: "concept", properties: { name: "mcp-e2e" } }], first: 10 },
       },
     });
 

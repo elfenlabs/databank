@@ -15,26 +15,32 @@ export interface RelationsTable {
   created_at: ColumnType<Date, Date | undefined, never>;
 }
 
-export interface PropertyKeysTable {
+export interface TraitsTable {
   name: string;
   description: string | null;
+  name_vector: Vector | null;
   usage_count: ColumnType<number, number | undefined, number>;
   created_at: ColumnType<Date, Date | undefined, never>;
+}
+
+export interface TraitPropertiesTable {
+  trait_name: string;
+  key: string;
+  description: string | null;
 }
 
 export interface EntitiesTable {
   id: Generated<string>;
   content: string;
   content_vector: Vector | null;
-  properties: ColumnType<Record<string, unknown>, string | undefined, string>;
   created_at: ColumnType<Date, Date | undefined, never>;
 }
 
-export interface EntityLabelsTable {
+export interface EntityTraitsTable {
   id: Generated<string>;
   entity_id: string;
-  label: string;
-  label_vector: Vector | null;
+  trait_name: string;
+  properties: ColumnType<Record<string, unknown>, string | undefined, string>;
 }
 
 export interface EdgesTable {
@@ -54,8 +60,9 @@ export interface EdgesTable {
 
 export interface Database {
   relations: RelationsTable;
-  property_keys: PropertyKeysTable;
+  traits: TraitsTable;
+  trait_properties: TraitPropertiesTable;
   entities: EntitiesTable;
-  entity_labels: EntityLabelsTable;
+  entity_traits: EntityTraitsTable;
   edges: EdgesTable;
 }

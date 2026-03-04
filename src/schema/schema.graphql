@@ -22,21 +22,23 @@ input TemporalFilter {
   to: DateTime
 }
 
+input TraitInput {
+  name: String!
+  """Scoped properties — keys must be defined in the trait schema."""
+  properties: JSON
+}
+
 input CreateEntityInput {
   """Text content, automatically embedded for semantic search."""
   content: String!
-  labels: [String!]!
-  """Key-value properties stored as JSON."""
-  properties: JSON
+  traits: [TraitInput!]!
 }
 
 """Only provided fields are changed; omitted fields are preserved."""
 input UpdateEntityInput {
   content: String
-  """Replaces all labels when set."""
-  labels: [String!]
-  """Replaces all properties when set."""
-  properties: JSON
+  """Replaces all trait assignments when set."""
+  traits: [TraitInput!]
 }
 
 input CreateEdgeInput {
@@ -56,19 +58,25 @@ input SemanticSearch {
   threshold: Float!
 }
 
-"""Exact key-value match. Multiple filters are combined with AND."""
-input PropertyFilter {
-  key: String!
-  value: String!
+"""Trait-scoped filter. Multiple filters are combined with AND."""
+input TraitFilter {
+  trait: String!
+  """Optional JSONB containment match on trait properties."""
+  properties: JSON
 }
 
-"""Knowledge entity with content, labels, and key-value properties."""
+"""Knowledge entity with content and typed trait assignments."""
 type Entity implements Node {
   id: ID!
   content: String!
-  labels: [String!]!
-  properties: JSON!
+  traits: [EntityTrait!]!
   createdAt: DateTime!
+}
+
+"""A trait assigned to an entity, with its scoped properties."""
+type EntityTrait {
+  name: String!
+  properties: JSON!
 }
 
 """Directed, typed relationship between two entities with optional temporal validity."""
@@ -126,7 +134,7 @@ type PathStep {
   edge: Edge
 }
 
-"""Named entry in a registry (relation types or property keys)."""
+"""Named entry in the relation registry."""
 type RegistryEntry {
   name: String!
   description: String
@@ -147,6 +155,28 @@ type RegistryConnection {
   totalCount: Int!
 }
 
+"""Registered trait definition with its property schema."""
+type Trait {
+  name: String!
+  description: String
+  propertyKeys: [String!]!
+  usageCount: Int!
+  createdAt: DateTime!
+}
+
+type TraitEdge {
+  node: Trait!
+  """1.0 for exact/unfiltered, cosine similarity for semantic matches."""
+  score: Float!
+  cursor: String!
+}
+
+type TraitConnection {
+  edges: [TraitEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
 type SimilarPair {
   entityA: Entity!
   entityB: Entity!
@@ -155,9 +185,8 @@ type SimilarPair {
 
 """Aggregate statistics and vocabulary of the databank."""
 type SchemaInfo {
-  labels: [String!]!
+  traits: [String!]!
   relationTypes: [String!]!
-  propertyKeys: [String!]!
   entityCount: Int!
   edgeCount: Int!
 }
@@ -165,15 +194,13 @@ type SchemaInfo {
 type Query {
   """
   Search and filter entities.
-  Labels filter is OR; properties filter is AND; all filters are combined with AND.
+  Trait filter is AND across filters; all filters are combined with AND.
   Sorted by similarity when `search` is set, otherwise by creation time (desc).
   """
   entities(
     search: SemanticSearch
-    """OR — entities with any of these labels."""
-    labels: [String!]
-    """AND — all key-value pairs must match."""
-    properties: [PropertyFilter!]
+    """AND — all trait filters must match."""
+    traitFilter: [TraitFilter!]
     first: Int!
     after: String
   ): EntityConnection!
@@ -182,14 +209,14 @@ type Query {
   Traverse the graph from an entity, returning adjacent entities and full edge objects.
   At depth 1 (default), returns direct neighbors. At depth > 1, returns only terminal
   entities reachable in exactly N hops. `relationType` and `temporal` filter every hop;
-  `targetLabels` and `targetSearch` filter only terminal entities.
+  `targetTraits` and `targetSearch` filter only terminal entities.
   Sorted by edge creation time (desc).
   """
   relations(
     entityId: ID!
     relationType: String
-    """OR — targets with any of these labels."""
-    targetLabels: [String!]
+    """OR — targets with any of these traits."""
+    targetTraits: [String!]
     """Semantic filter on target content. Populates `score` in results."""
     targetSearch: SemanticSearch
     direction: Direction = OUTGOING
@@ -223,11 +250,15 @@ type Query {
     after: String
   ): RegistryConnection!
 
-  """Browse the property key vocabulary. Default sort: usage count (desc)."""
-  propertyKeys(
+  """Browse or search trait registry. Default sort: usage count (desc)."""
+  traits(
+    match: MatchType
+    value: String
+    """Required when `match: SEMANTIC`."""
+    threshold: Float
     first: Int = 20
     after: String
-  ): RegistryConnection!
+  ): TraitConnection!
 
   """Entities with no edges. Sorted by creation time (desc)."""
   orphans(first: Int = 20, after: String): EntityConnection!
@@ -241,7 +272,7 @@ type Query {
 type Mutation {
   createEntity(input: CreateEntityInput!): Entity!
   updateEntity(id: ID!, input: UpdateEntityInput!): Entity!
-  """Cascades: removes associated labels and edges."""
+  """Cascades: removes associated trait assignments and edges."""
   deleteEntity(id: ID!): Boolean!
 
   """Relation type is auto-registered if new."""
@@ -254,9 +285,15 @@ type Mutation {
   """Fails if edges still reference this type."""
   deleteRelation(name: String!): Boolean!
 
-  registerProperty(name: String!, description: String): RegistryEntry!
-  """Re-labels all properties from source keys to target key."""
-  mergeProperties(sources: [String!]!, target: String!): RegistryEntry!
-  """Fails if entities still use this key."""
-  deleteProperty(name: String!): Boolean!
+  """Register a trait with optional property key definitions."""
+  registerTrait(name: String!, description: String, propertyKeys: [String!]): Trait!
+  """Re-labels all entity trait assignments from source traits to target trait."""
+  mergeTraits(sources: [String!]!, target: String!): Trait!
+  """Fails if entities still carry this trait."""
+  deleteTrait(name: String!): Boolean!
+
+  """Add a property key to an existing trait's schema."""
+  addTraitProperty(trait: String!, key: String!, description: String): Trait!
+  """Remove a property key from a trait's schema. Does not strip the key from existing entities."""
+  removeTraitProperty(trait: String!, key: String!): Trait!
 }

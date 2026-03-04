@@ -59,7 +59,7 @@ async function resolveMultiHop(
   args: {
     entityId: string;
     relationType?: string;
-    targetLabels?: string[];
+    targetTraits?: string[];
     targetSearch?: { query: string; threshold: number };
     direction: "OUTGOING" | "INCOMING" | "BOTH";
     temporal?: { mode: "AT" | "WITHIN" | "OVERLAPS"; at?: string; from?: string; to?: string };
@@ -145,15 +145,15 @@ async function resolveMultiHop(
 
   let terminalRows = cteResult.rows;
 
-  // Apply target labels filter on terminal entities
-  if (args.targetLabels && args.targetLabels.length > 0) {
+  // Apply target traits filter on terminal entities
+  if (args.targetTraits && args.targetTraits.length > 0) {
     const entityIds = terminalRows.map((r) => r.entity_id);
     if (entityIds.length > 0) {
       const matchingIds = await ctx.db
-        .selectFrom("entity_labels")
+        .selectFrom("entity_traits")
         .select("entity_id")
         .where("entity_id", "in", entityIds)
-        .where("label", "in", args.targetLabels)
+        .where("trait_name", "in", args.targetTraits)
         .execute();
       const matchSet = new Set(matchingIds.map((r) => r.entity_id));
       terminalRows = terminalRows.filter((r) => matchSet.has(r.entity_id));
@@ -236,7 +236,7 @@ export const relationResolvers = {
       args: {
         entityId: string;
         relationType?: string;
-        targetLabels?: string[];
+        targetTraits?: string[];
         targetSearch?: { query: string; threshold: number };
         direction?: "OUTGOING" | "INCOMING" | "BOTH";
         temporal?: {
@@ -288,17 +288,17 @@ export const relationResolvers = {
         edgeQuery = edgeQuery.where("relation_type", "=", args.relationType);
       }
 
-      // Target labels filter — only include edges whose target has matching labels
-      if (args.targetLabels && args.targetLabels.length > 0) {
+      // Target traits filter — only include edges whose target has matching traits
+      if (args.targetTraits && args.targetTraits.length > 0) {
         const targetIdCol =
           direction === "INCOMING" ? "source_id" : "target_id";
         edgeQuery = edgeQuery.where(
           targetIdCol,
           "in",
           ctx.db
-            .selectFrom("entity_labels")
+            .selectFrom("entity_traits")
             .select("entity_id")
-            .where("label", "in", args.targetLabels),
+            .where("trait_name", "in", args.targetTraits),
         );
       }
 

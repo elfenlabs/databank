@@ -9,12 +9,21 @@ CREATE TABLE relations (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Property key registry (lightweight vocabulary — no embeddings)
-CREATE TABLE property_keys (
+-- Trait registry (replaces labels + property_keys)
+CREATE TABLE traits (
   name            TEXT PRIMARY KEY,
   description     TEXT,
+  name_vector     vector(384),
   usage_count     INT NOT NULL DEFAULT 0,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Trait property definitions (schema for each trait)
+CREATE TABLE trait_properties (
+  trait_name      TEXT NOT NULL REFERENCES traits(name) ON DELETE CASCADE,
+  key             TEXT NOT NULL,
+  description     TEXT,
+  PRIMARY KEY (trait_name, key)
 );
 
 -- Entities
@@ -22,19 +31,18 @@ CREATE TABLE entities (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   content         TEXT NOT NULL,
   content_vector  vector(384),
-  properties      JSONB NOT NULL DEFAULT '{}',
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_entities_properties ON entities USING GIN (properties);
 
--- Entity labels (one row per label, each with its own embedding)
-CREATE TABLE entity_labels (
+-- Entity-trait assignments (replaces entity_labels + entity.properties)
+CREATE TABLE entity_traits (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_id       UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  label           TEXT NOT NULL,
-  label_vector    vector(384),
-  UNIQUE(entity_id, label)
+  trait_name      TEXT NOT NULL REFERENCES traits(name),
+  properties      JSONB NOT NULL DEFAULT '{}',
+  UNIQUE(entity_id, trait_name)
 );
+CREATE INDEX idx_entity_traits_properties ON entity_traits USING GIN (properties);
 
 -- Edges (directed relationships with temporal metadata)
 CREATE TABLE edges (
@@ -51,7 +59,8 @@ CREATE TABLE edges (
 -- migrate:down
 
 DROP TABLE IF EXISTS edges;
-DROP TABLE IF EXISTS entity_labels;
+DROP TABLE IF EXISTS entity_traits;
 DROP TABLE IF EXISTS entities;
-DROP TABLE IF EXISTS property_keys;
+DROP TABLE IF EXISTS trait_properties;
+DROP TABLE IF EXISTS traits;
 DROP TABLE IF EXISTS relations;

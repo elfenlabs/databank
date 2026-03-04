@@ -59,11 +59,9 @@ export const maintenanceResolvers = {
         .select([
           "a.id as a_id",
           "a.content as a_content",
-          "a.properties as a_properties",
           "a.created_at as a_created_at",
           "b.id as b_id",
           "b.content as b_content",
-          "b.properties as b_properties",
           "b.created_at as b_created_at",
           sql<number>`1 - (a.content_vector <=> b.content_vector)`.as(
             "similarity",
@@ -91,15 +89,13 @@ export const maintenanceResolvers = {
             resolveEntity(ctx.db, {
               id: row.a_id,
               content: row.a_content,
-              properties: (row as any).a_properties ?? {},
               created_at: row.a_created_at,
-            } as any),
+            }),
             resolveEntity(ctx.db, {
               id: row.b_id,
               content: row.b_content,
-              properties: (row as any).b_properties ?? {},
               created_at: row.b_created_at,
-            } as any),
+            }),
           ]);
           return { entityA, entityB, similarity: row.similarity };
         }),
@@ -109,18 +105,13 @@ export const maintenanceResolvers = {
     },
 
     async schema(_: unknown, __: unknown, ctx: GraphContext) {
-      const [labels, relationTypes, propKeys, entityCount, edgeCount] = await Promise.all([
+      const [traitNames, relationTypes, entityCount, edgeCount] = await Promise.all([
         ctx.db
-          .selectFrom("entity_labels")
-          .select("label")
-          .distinct()
-          .execute(),
-        ctx.db
-          .selectFrom("relations")
+          .selectFrom("traits")
           .select("name")
           .execute(),
         ctx.db
-          .selectFrom("property_keys")
+          .selectFrom("relations")
           .select("name")
           .execute(),
         ctx.db
@@ -134,9 +125,8 @@ export const maintenanceResolvers = {
       ]);
 
       return {
-        labels: labels.map((l) => l.label),
+        traits: traitNames.map((t) => t.name),
         relationTypes: relationTypes.map((r) => r.name),
-        propertyKeys: propKeys.map((p) => p.name),
         entityCount: Number(entityCount.count),
         edgeCount: Number(edgeCount.count),
       };

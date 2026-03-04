@@ -1,12 +1,61 @@
 {
-    "labels": [
-        "person",
-        "organization",
-        "place",
-        "event",
-        "document",
-        "concept",
-        "item"
+    "traits": [
+        {
+            "name": "person",
+            "description": "A human being",
+            "propertyKeys": [
+                "name",
+                "email",
+                "role"
+            ]
+        },
+        {
+            "name": "organization",
+            "description": "A group, company, or institution",
+            "propertyKeys": [
+                "name",
+                "industry"
+            ]
+        },
+        {
+            "name": "place",
+            "description": "A geographic location",
+            "propertyKeys": [
+                "name",
+                "coordinates"
+            ]
+        },
+        {
+            "name": "event",
+            "description": "A happening with a time and place",
+            "propertyKeys": [
+                "name",
+                "date"
+            ]
+        },
+        {
+            "name": "document",
+            "description": "A written or recorded artifact",
+            "propertyKeys": [
+                "title",
+                "format"
+            ]
+        },
+        {
+            "name": "concept",
+            "description": "An abstract idea or principle",
+            "propertyKeys": [
+                "name"
+            ]
+        },
+        {
+            "name": "item",
+            "description": "A tangible or digital object",
+            "propertyKeys": [
+                "name",
+                "version"
+            ]
+        }
     ],
     "relations": [
         {

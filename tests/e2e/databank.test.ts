@@ -27,55 +27,64 @@ let edgeId2 = "";
 // ---------------------------------------------------------------------------
 
 describe("Databank E2E", () => {
-  // 1. Schema query — fresh DB (seeded relations, no entities/edges)
+  // 1. Schema query — fresh DB (seeded traits + relations, no entities/edges)
   test("schema returns seeded state", async () => {
     const { data, errors } = await gql<{
-      schema: { entityCount: number; edgeCount: number; labels: string[]; relationTypes: string[]; propertyKeys: string[] };
-    }>(`{ schema { entityCount edgeCount labels relationTypes propertyKeys } }`);
+      schema: { entityCount: number; edgeCount: number; traits: string[]; relationTypes: string[] };
+    }>(`{ schema { entityCount edgeCount traits relationTypes } }`);
 
     expect(errors).toBeUndefined();
     expect(data!.schema.entityCount).toBe(0);
     expect(data!.schema.edgeCount).toBe(0);
-    expect(data!.schema.labels).toEqual([]);
-    // Starter relations are seeded at boot
+    // Starter traits and relations are seeded at boot
+    expect(data!.schema.traits.length).toBeGreaterThanOrEqual(7);
+    expect(data!.schema.traits).toContain("person");
+    expect(data!.schema.traits).toContain("concept");
     expect(data!.schema.relationTypes.length).toBeGreaterThanOrEqual(11);
     expect(data!.schema.relationTypes).toContain("owns");
     expect(data!.schema.relationTypes).toContain("depends_on");
-    expect(data!.schema.propertyKeys).toEqual([]);
   });
 
-  // 2. Create entities
-  test("createEntity returns correct fields", async () => {
+  // 2. Create entities with traits
+  test("createEntity returns correct fields with traits", async () => {
     const { data, errors } = await gql<{
-      ts: { id: string; content: string; labels: string[]; properties: Record<string, string> };
-      rust: { id: string; content: string; labels: string[] };
-      pg: { id: string; content: string; labels: string[] };
+      ts: { id: string; content: string; traits: Array<{ name: string; properties: Record<string, string> }> };
+      rust: { id: string; content: string; traits: Array<{ name: string }> };
+      pg: { id: string; content: string; traits: Array<{ name: string }> };
     }>(`
       mutation {
         ts: createEntity(input: {
           content: "TypeScript is a typed superset of JavaScript"
-          labels: ["language", "programming"]
-          properties: { name: "TypeScript", paradigm: "multi-paradigm" }
-        }) { id content labels properties }
+          traits: [
+            { name: "item", properties: { name: "TypeScript", version: "5.0" } },
+            { name: "concept" }
+          ]
+        }) { id content traits { name properties } }
 
         rust: createEntity(input: {
           content: "Rust is a systems programming language focused on safety"
-          labels: ["language", "programming"]
-          properties: { name: "Rust" }
-        }) { id content labels }
+          traits: [
+            { name: "item", properties: { name: "Rust" } }
+          ]
+        }) { id content traits { name } }
 
         pg: createEntity(input: {
           content: "PostgreSQL is a powerful relational database"
-          labels: ["database", "infrastructure"]
-          properties: { name: "PostgreSQL" }
-        }) { id content labels }
+          traits: [
+            { name: "item", properties: { name: "PostgreSQL" } }
+          ]
+        }) { id content traits { name } }
       }
     `);
 
     expect(errors).toBeUndefined();
     expect(data!.ts.content).toBe("TypeScript is a typed superset of JavaScript");
-    expect(data!.ts.labels).toEqual(["language", "programming"]);
-    expect(data!.ts.properties).toEqual({ name: "TypeScript", paradigm: "multi-paradigm" });
+    expect(data!.ts.traits.length).toBe(2);
+    const itemTrait = data!.ts.traits.find((t) => t.name === "item");
+    expect(itemTrait).toBeTruthy();
+    expect(itemTrait!.properties).toEqual({ name: "TypeScript", version: "5.0" });
+    const conceptTrait = data!.ts.traits.find((t) => t.name === "concept");
+    expect(conceptTrait).toBeTruthy();
     expect(data!.rust.id).toBeTruthy();
     expect(data!.pg.id).toBeTruthy();
 
@@ -85,14 +94,30 @@ describe("Databank E2E", () => {
     entityIds.pg = data!.pg.id;
   });
 
+  // 3. Property validation — reject unknown keys
+  test("createEntity rejects unknown property keys", async () => {
+    const { errors } = await gql(`
+      mutation {
+        createEntity(input: {
+          content: "Should fail"
+          traits: [
+            { name: "person", properties: { name: "Alice", unknown_field: "bad" } }
+          ]
+        }) { id }
+      }
+    `);
 
+    expect(errors).toBeDefined();
+    expect(errors![0]!.message).toContain("does not define property key");
+    expect(errors![0]!.message).toContain("unknown_field");
+  });
 
-  // 4. Filter by property
-  test("entities filters by property", async () => {
+  // 4. Filter by trait + properties
+  test("entities filters by traitFilter", async () => {
     const { data, errors } = await gql<{
       entities: { totalCount: number; edges: Array<{ node: { id: string; content: string } }> };
     }>(`{
-      entities(properties: [{ key: "name", value: "TypeScript" }], first: 10) {
+      entities(traitFilter: [{ trait: "item", properties: { name: "TypeScript" } }], first: 10) {
         totalCount
         edges { node { id content } }
       }
@@ -106,11 +131,11 @@ describe("Databank E2E", () => {
   // 5. Semantic search
   test("entities semantic search finds similar content", async () => {
     const { data, errors } = await gql<{
-      entities: { totalCount: number; edges: Array<{ node: { id: string; labels: string[] } }> };
+      entities: { totalCount: number; edges: Array<{ node: { id: string; traits: Array<{ name: string }> } }> };
     }>(`{
       entities(search: { query: "programming language", threshold: 0.3 }, first: 10) {
         totalCount
-        edges { node { id labels } }
+        edges { node { id traits { name } } }
       }
     }`);
 
@@ -281,7 +306,7 @@ describe("Databank E2E", () => {
     // Create an isolated entity
     const { data: created } = await gql<{ createEntity: { id: string } }>(`
       mutation {
-        createEntity(input: { content: "Isolated node", labels: ["test"] }) { id }
+        createEntity(input: { content: "Isolated node", traits: [{ name: "concept" }] }) { id }
       }
     `);
 
@@ -314,24 +339,41 @@ describe("Databank E2E", () => {
     expect(runsOn!.node.usageCount).toBe(1);
   });
 
-  // 9. Register property with description
-  test("registerProperty creates entry with description", async () => {
+  // 9. Traits query — check seeded traits have property schemas
+  test("traits query returns trait definitions with property keys", async () => {
     const { data, errors } = await gql<{
-      registerProperty: { name: string; description: string; usageCount: number };
+      traits: { edges: Array<{ node: { name: string; propertyKeys: string[]; usageCount: number } }> };
+    }>(`{ traits { edges { node { name propertyKeys usageCount } } } }`);
+
+    expect(errors).toBeUndefined();
+    const itemTrait = data!.traits.edges.find((e) => e.node.name === "item");
+    expect(itemTrait).toBeTruthy();
+    expect(itemTrait!.node.propertyKeys).toContain("name");
+    expect(itemTrait!.node.propertyKeys).toContain("version");
+    // item is used by TS, Rust, PG = 3
+    expect(itemTrait!.node.usageCount).toBe(3);
+  });
+
+  // 10. Register trait with description
+  test("registerTrait creates entry with description and propertyKeys", async () => {
+    const { data, errors } = await gql<{
+      registerTrait: { name: string; description: string; propertyKeys: string[] };
     }>(`
       mutation {
-        registerProperty(name: "version", description: "The version number of the software") {
-          name description usageCount
+        registerTrait(name: "language", description: "A programming language", propertyKeys: ["name", "paradigm"]) {
+          name description propertyKeys
         }
       }
     `);
 
     expect(errors).toBeUndefined();
-    expect(data!.registerProperty.name).toBe("version");
-    expect(data!.registerProperty.description).toBe("The version number of the software");
+    expect(data!.registerTrait.name).toBe("language");
+    expect(data!.registerTrait.description).toBe("A programming language");
+    expect(data!.registerTrait.propertyKeys).toContain("name");
+    expect(data!.registerTrait.propertyKeys).toContain("paradigm");
   });
 
-  // 10. Register relation with description
+  // 10b. Register relation with description
   test("registerRelation creates entry with description", async () => {
     const { data, errors } = await gql<{
       registerRelation: { name: string; description: string };
