@@ -57,8 +57,23 @@ CREATE TABLE edges (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Memory stream (WAL-style observation log for agents)
+CREATE TABLE memory_stream (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  content         TEXT NOT NULL,
+  source          TEXT NOT NULL,
+  priority        INT NOT NULL DEFAULT 0,
+  embedding       vector(384),
+  status          TEXT NOT NULL DEFAULT 'PENDING',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX idx_memory_stream_pending ON memory_stream(created_at DESC) WHERE status = 'PENDING';
+
 -- migrate:down
 
+DROP TABLE IF EXISTS memory_stream;
 DROP TABLE IF EXISTS edges;
 DROP TABLE IF EXISTS entity_traits;
 DROP TABLE IF EXISTS entities;

@@ -394,6 +394,145 @@ describe("Databank E2E", () => {
     expect(data!.registerRelation.description).toBe("A dependency relationship between software components");
   });
 
+  // -----------------------------------------------------------------------
+  // Memory Stream
+  // -----------------------------------------------------------------------
+
+  const memoryIds: string[] = [];
+
+  // MS-1. Append memories
+  test("appendMemory creates entries with embeddings", async () => {
+    const { data, errors } = await gql<{
+      a: { id: string; content: string; source: string; priority: number; status: string };
+      b: { id: string; content: string; priority: number };
+      c: { id: string; content: string; priority: number };
+    }>(`
+      mutation {
+        a: appendMemory(content: "Janna committed to project Y last night", source: "User Chat") {
+          id content source priority status
+        }
+        b: appendMemory(content: "Evan is eating burger for lunch", source: "User Chat", priority: 1) {
+          id content priority
+        }
+        c: appendMemory(content: "Issue with Y project, the build is taking too long", source: "System Log", priority: 5) {
+          id content priority
+        }
+      }
+    `);
+
+    expect(errors).toBeUndefined();
+    expect(data!.a.content).toBe("Janna committed to project Y last night");
+    expect(data!.a.source).toBe("User Chat");
+    expect(data!.a.priority).toBe(0); // default
+    expect(data!.a.status).toBe("PENDING");
+    expect(data!.b.priority).toBe(1);
+    expect(data!.c.priority).toBe(5);
+
+    memoryIds.push(data!.a.id, data!.b.id, data!.c.id);
+  });
+
+  // MS-2. List all memories (default: no status filter)
+  test("memoryStream returns all entries by default", async () => {
+    const { data, errors } = await gql<{
+      memoryStream: { totalCount: number; edges: Array<{ node: { id: string; content: string } }> };
+    }>(`{ memoryStream { totalCount edges { node { id content } } } }`);
+
+    expect(errors).toBeUndefined();
+    expect(data!.memoryStream.totalCount).toBe(3);
+  });
+
+  // MS-3. Vector search the stream
+  test("memoryStream semantic search finds relevant entries", async () => {
+    const { data, errors } = await gql<{
+      memoryStream: {
+        totalCount: number;
+        edges: Array<{ node: { content: string }; score: number }>;
+      };
+    }>(`{
+      memoryStream(search: { query: "project build problem", threshold: 0.3 }) {
+        totalCount
+        edges { node { content } score }
+      }
+    }`);
+
+    expect(errors).toBeUndefined();
+    expect(data!.memoryStream.totalCount).toBeGreaterThanOrEqual(1);
+    // The build issue entry should rank high
+    const contents = data!.memoryStream.edges.map((e) => e.node.content);
+    expect(contents).toContain("Issue with Y project, the build is taking too long");
+    // Scores should be populated
+    expect(data!.memoryStream.edges[0]!.score).toBeGreaterThan(0);
+  });
+
+  // MS-4. Filter by status
+  test("memoryStream filters by status", async () => {
+    const { data, errors } = await gql<{
+      memoryStream: { totalCount: number };
+    }>(`{ memoryStream(status: "PROCESSED") { totalCount } }`);
+
+    expect(errors).toBeUndefined();
+    expect(data!.memoryStream.totalCount).toBe(0); // nothing processed yet
+  });
+
+  // MS-5. Schema reflects pending count
+  test("schema includes memoryStreamCount", async () => {
+    const { data, errors } = await gql<{
+      schema: { memoryStreamCount: number };
+    }>(`{ schema { memoryStreamCount } }`);
+
+    expect(errors).toBeUndefined();
+    expect(data!.schema.memoryStreamCount).toBe(3);
+  });
+
+  // MS-6. Update status (mark first two as PROCESSED)
+  test("updateMemoryStatus marks entries as processed", async () => {
+    const { data, errors } = await gql<{ updateMemoryStatus: number }>(`
+      mutation($ids: [ID!]!) {
+        updateMemoryStatus(ids: $ids, status: "PROCESSED")
+      }
+    `, { ids: [memoryIds[0], memoryIds[1]] });
+
+    expect(errors).toBeUndefined();
+    expect(data!.updateMemoryStatus).toBe(2);
+
+    // Verify: only 1 pending remains
+    const { data: schemaData } = await gql<{
+      schema: { memoryStreamCount: number };
+    }>(`{ schema { memoryStreamCount } }`);
+    expect(schemaData!.schema.memoryStreamCount).toBe(1);
+  });
+
+  // MS-7. Invalid status rejected
+  test("updateMemoryStatus rejects invalid status", async () => {
+    const { errors } = await gql(`
+      mutation($ids: [ID!]!) {
+        updateMemoryStatus(ids: $ids, status: "INVALID")
+      }
+    `, { ids: [memoryIds[2]] });
+
+    expect(errors).toBeDefined();
+    expect(errors![0]!.message).toContain("Invalid status");
+  });
+
+  // MS-8. Truncate processed entries
+  test("truncateMemoryStream deletes old non-pending entries", async () => {
+    // Truncate everything before far future — should delete the 2 PROCESSED entries
+    const { data, errors } = await gql<{ truncateMemoryStream: number }>(`
+      mutation {
+        truncateMemoryStream(before: "2099-01-01T00:00:00Z")
+      }
+    `);
+
+    expect(errors).toBeUndefined();
+    expect(data!.truncateMemoryStream).toBe(2);
+
+    // The 1 PENDING entry should survive
+    const { data: remaining } = await gql<{
+      memoryStream: { totalCount: number };
+    }>(`{ memoryStream { totalCount } }`);
+    expect(remaining!.memoryStream.totalCount).toBe(1);
+  });
+
   // 11. Orphans — all entities have edges now
   test("orphans returns unconnected entities", async () => {
     const { data, errors } = await gql<{

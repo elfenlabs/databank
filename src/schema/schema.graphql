@@ -186,12 +186,37 @@ type SimilarPair {
   similarity: Float!
 }
 
+"""An observation in the memory stream (WAL). Embedded on write for vector search."""
+type MemoryStreamEntry implements Node {
+  id: ID!
+  content: String!
+  source: String!
+  priority: Int!
+  status: String!
+  createdAt: DateTime!
+  processedAt: DateTime
+}
+
+type MemoryStreamEdge {
+  node: MemoryStreamEntry!
+  """Cosine similarity when `search` is active; null otherwise."""
+  score: Float
+  cursor: String!
+}
+
+type MemoryStreamConnection {
+  edges: [MemoryStreamEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
 """Aggregate statistics and vocabulary of the databank."""
 type SchemaInfo {
   traits: [String!]!
   relationTypes: [String!]!
   entityCount: Int!
   edgeCount: Int!
+  memoryStreamCount: Int!
 }
 
 type Query {
@@ -269,6 +294,18 @@ type Query {
   """Entity pairs with high embedding similarity but no direct edge. Max 50 pairs."""
   similarPairs(threshold: Float!): [SimilarPair!]!
 
+  """
+  Browse or search the memory stream.
+  Sorted by similarity when `search` is set, otherwise by creation time (desc).
+  """
+  memoryStream(
+    search: SemanticSearch
+    """Filter by status (e.g. PENDING, PROCESSED). Omit to show all."""
+    status: String
+    first: Int = 20
+    after: String
+  ): MemoryStreamConnection!
+
   schema: SchemaInfo!
 }
 
@@ -299,4 +336,11 @@ type Mutation {
   addTraitProperty(trait: String!, key: String!, description: String): Trait!
   """Remove a property key from a trait's schema. Does not strip the key from existing entities."""
   removeTraitProperty(trait: String!, key: String!): Trait!
+
+  """Append an observation to the memory stream. Embedded on write."""
+  appendMemory(content: String!, source: String!, priority: Int): MemoryStreamEntry!
+  """Mark entries as PROCESSED or DISCARDED. Used by the Librarian."""
+  updateMemoryStatus(ids: [ID!]!, status: String!): Int!
+  """Truncate non-PENDING entries older than the given timestamp."""
+  truncateMemoryStream(before: DateTime!): Int!
 }

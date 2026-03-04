@@ -55,6 +55,17 @@ export interface EdgesTable {
   created_at: ColumnType<Date, Date | undefined, never>;
 }
 
+export interface MemoryStreamTable {
+  id: Generated<string>;
+  content: string;
+  source: string;
+  priority: ColumnType<number, number | undefined, number>;
+  embedding: Vector | null;
+  status: ColumnType<string, string | undefined, string>;
+  created_at: ColumnType<Date, Date | undefined, never>;
+  processed_at: Date | null;
+}
+
 // ---------------------------------------------------------------------------
 // Database interface (used by Kysely)
 // ---------------------------------------------------------------------------
@@ -66,4 +77,5 @@ export interface Database {
   entities: EntitiesTable;
   entity_traits: EntityTraitsTable;
   edges: EdgesTable;
+  memory_stream: MemoryStreamTable;
 }

@@ -109,7 +109,7 @@ export const maintenanceResolvers = {
     },
 
     async schema(_: unknown, __: unknown, ctx: GraphContext) {
-      const [traitNames, relationTypes, entityCount, edgeCount] = await Promise.all([
+      const [traitNames, relationTypes, entityCount, edgeCount, memoryStreamCount] = await Promise.all([
         ctx.db
           .selectFrom("traits")
           .select("name")
@@ -126,6 +126,11 @@ export const maintenanceResolvers = {
           .selectFrom("edges")
           .select(sql<number>`count(*)`.as("count"))
           .executeTakeFirstOrThrow(),
+        ctx.db
+          .selectFrom("memory_stream")
+          .where("status", "=", "PENDING")
+          .select(sql<number>`count(*)`.as("count"))
+          .executeTakeFirstOrThrow(),
       ]);
 
       return {
@@ -133,6 +138,7 @@ export const maintenanceResolvers = {
         relationTypes: relationTypes.map((r) => r.name),
         entityCount: Number(entityCount.count),
         edgeCount: Number(edgeCount.count),
+        memoryStreamCount: Number(memoryStreamCount.count),
       };
     },
   },

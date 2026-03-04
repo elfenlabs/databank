@@ -4,6 +4,7 @@ import { pathResolvers } from "./path.ts";
 import { edgeResolvers } from "./edges.ts";
 import { registryResolvers } from "./registry.ts";
 import { maintenanceResolvers } from "./maintenance.ts";
+import { memoryStreamResolvers } from "./memory-stream.ts";
 
 /**
  * Deep-merge all resolver maps into a single object.
@@ -30,9 +31,11 @@ export const resolvers = mergeResolvers(
   edgeResolvers,
   registryResolvers,
   maintenanceResolvers,
+  memoryStreamResolvers,
   {
     Node: {
       __resolveType(obj: any) {
+        if ("content" in obj && "source" in obj) return "MemoryStreamEntry";
         if ("name" in obj) return "Entity";
         if ("sourceId" in obj || "source_id" in obj) return "Edge";
         return null;
