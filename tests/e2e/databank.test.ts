@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { setup, teardown } from "./setup.ts";
-import { gql } from "./helpers.ts";
+import { gql, adminGql } from "./helpers.ts";
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -46,8 +46,28 @@ describe("Databank E2E", () => {
   });
 
   // 2. Create entities with traits
+  // Consumer endpoint rejects admin-only mutations
+  test("consumer endpoint rejects createEntity mutation", async () => {
+    const { errors } = await gql(`
+      mutation {
+        createEntity(input: {
+          name: "Should fail"
+          traits: [{ name: "concept" }]
+        }) { id }
+      }
+    `);
+
+    expect(errors).toBeDefined();
+  });
+
+  // Consumer endpoint rejects admin-only queries
+  test("consumer endpoint rejects orphans query", async () => {
+    const { errors } = await gql(`{ orphans { totalCount } }`);
+    expect(errors).toBeDefined();
+  });
+
   test("createEntity returns correct fields with traits", async () => {
-    const { data, errors } = await gql<{
+    const { data, errors } = await adminGql<{
       ts: { id: string; name: string; description: string; traits: Array<{ name: string; properties: Record<string, string> }> };
       rust: { id: string; name: string; traits: Array<{ name: string }> };
       pg: { id: string; name: string; traits: Array<{ name: string }> };
@@ -100,7 +120,7 @@ describe("Databank E2E", () => {
 
   // 3. Property validation — reject unknown keys
   test("createEntity rejects unknown property keys", async () => {
-    const { errors } = await gql(`
+    const { errors } = await adminGql(`
       mutation {
         createEntity(input: {
           name: "Should fail"
@@ -153,7 +173,7 @@ describe("Databank E2E", () => {
 
   // 6. Create edge + auto-register relation
   test("createEdge auto-registers relation", async () => {
-    const { data, errors } = await gql<{
+    const { data, errors } = await adminGql<{
       createEdge: { id: string; sourceId: string; targetId: string; relationType: string };
     }>(`
       mutation($input: CreateEdgeInput!) {
@@ -199,7 +219,7 @@ describe("Databank E2E", () => {
 
   // 7b. Create second edge for multi-hop chain: Rust →(depends_on)→ TS →(runs_on)→ PG
   test("createEdge builds multi-hop chain", async () => {
-    const { data, errors } = await gql<{
+    const { data, errors } = await adminGql<{
       createEdge: { id: string; relationType: string };
     }>(`
       mutation($input: CreateEdgeInput!) {
@@ -308,7 +328,7 @@ describe("Databank E2E", () => {
   // 7g. Path with no connection → empty array
   test("path returns empty array when no path exists", async () => {
     // Create an isolated entity
-    const { data: created } = await gql<{ createEntity: { id: string } }>(`
+    const { data: created } = await adminGql<{ createEntity: { id: string } }>(`
       mutation {
         createEntity(input: { name: "Isolated node", traits: [{ name: "concept" }] }) { id }
       }
@@ -328,12 +348,12 @@ describe("Databank E2E", () => {
     expect(data!.path).toEqual([]);
 
     // Cleanup
-    await gql(`mutation($id: ID!) { deleteEntity(id: $id) }`, { id: created!.createEntity.id });
+    await adminGql(`mutation($id: ID!) { deleteEntity(id: $id) }`, { id: created!.createEntity.id });
   });
 
   // 8. Relation keys list
   test("relationKeys lists registered types with usage counts", async () => {
-    const { data, errors } = await gql<{
+    const { data, errors } = await adminGql<{
       relationKeys: { edges: Array<{ node: { name: string; usageCount: number } }> };
     }>(`{ relationKeys { edges { node { name usageCount } } } }`);
 
@@ -345,7 +365,7 @@ describe("Databank E2E", () => {
 
   // 9. Traits query — check seeded traits have property schemas
   test("traits query returns trait definitions with property keys", async () => {
-    const { data, errors } = await gql<{
+    const { data, errors } = await adminGql<{
       traits: { edges: Array<{ node: { name: string; propertyKeys: string[]; usageCount: number } }> };
     }>(`{ traits { edges { node { name propertyKeys usageCount } } } }`);
 
@@ -360,7 +380,7 @@ describe("Databank E2E", () => {
 
   // 10. Register trait with description
   test("registerTrait creates entry with description and propertyKeys", async () => {
-    const { data, errors } = await gql<{
+    const { data, errors } = await adminGql<{
       registerTrait: { name: string; description: string; propertyKeys: string[] };
     }>(`
       mutation {
@@ -379,7 +399,7 @@ describe("Databank E2E", () => {
 
   // 10b. Register relation with description
   test("registerRelation creates entry with description", async () => {
-    const { data, errors } = await gql<{
+    const { data, errors } = await adminGql<{
       registerRelation: { name: string; description: string };
     }>(`
       mutation {
@@ -486,7 +506,7 @@ describe("Databank E2E", () => {
 
   // MS-6. Update status (mark first two as PROCESSED)
   test("updateMemoryStatus marks entries as processed", async () => {
-    const { data, errors } = await gql<{ updateMemoryStatus: number }>(`
+    const { data, errors } = await adminGql<{ updateMemoryStatus: number }>(`
       mutation($ids: [ID!]!) {
         updateMemoryStatus(ids: $ids, status: "PROCESSED")
       }
@@ -504,7 +524,7 @@ describe("Databank E2E", () => {
 
   // MS-7. Invalid status rejected
   test("updateMemoryStatus rejects invalid status", async () => {
-    const { errors } = await gql(`
+    const { errors } = await adminGql(`
       mutation($ids: [ID!]!) {
         updateMemoryStatus(ids: $ids, status: "INVALID")
       }
@@ -517,7 +537,7 @@ describe("Databank E2E", () => {
   // MS-8. Truncate processed entries
   test("truncateMemoryStream deletes old non-pending entries", async () => {
     // Truncate everything before far future — should delete the 2 PROCESSED entries
-    const { data, errors } = await gql<{ truncateMemoryStream: number }>(`
+    const { data, errors } = await adminGql<{ truncateMemoryStream: number }>(`
       mutation {
         truncateMemoryStream(before: "2099-01-01T00:00:00Z")
       }
@@ -535,7 +555,7 @@ describe("Databank E2E", () => {
 
   // 11. Orphans — all entities have edges now
   test("orphans returns unconnected entities", async () => {
-    const { data, errors } = await gql<{
+    const { data, errors } = await adminGql<{
       orphans: { totalCount: number; edges: Array<{ node: { id: string } }> };
     }>(`{ orphans { totalCount edges { node { id } } } }`);
 
@@ -550,20 +570,20 @@ describe("Databank E2E", () => {
   // 12. Delete edges + entity
   test("deleteEdge and deleteEntity work", async () => {
     // Delete both edges
-    const delEdge1 = await gql<{ deleteEdge: boolean }>(`
+    const delEdge1 = await adminGql<{ deleteEdge: boolean }>(`
       mutation($id: ID!) { deleteEdge(id: $id) }
     `, { id: edgeId });
     expect(delEdge1.errors).toBeUndefined();
     expect(delEdge1.data!.deleteEdge).toBe(true);
 
-    const delEdge2 = await gql<{ deleteEdge: boolean }>(`
+    const delEdge2 = await adminGql<{ deleteEdge: boolean }>(`
       mutation($id: ID!) { deleteEdge(id: $id) }
     `, { id: edgeId2 });
     expect(delEdge2.errors).toBeUndefined();
     expect(delEdge2.data!.deleteEdge).toBe(true);
 
     // Delete an entity
-    const delEntity = await gql<{ deleteEntity: boolean }>(`
+    const delEntity = await adminGql<{ deleteEntity: boolean }>(`
       mutation($id: ID!) { deleteEntity(id: $id) }
     `, { id: entityIds.rust });
     expect(delEntity.errors).toBeUndefined();

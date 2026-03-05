@@ -24,7 +24,39 @@ function mergeResolvers(
   return result;
 }
 
-export const resolvers = mergeResolvers(
+const nodeResolver = {
+  Node: {
+    __resolveType(obj: any) {
+      if ("content" in obj && "source" in obj) return "MemoryStreamEntry";
+      if ("name" in obj) return "Entity";
+      if ("sourceId" in obj || "source_id" in obj) return "Edge";
+      return null;
+    },
+  },
+};
+
+/**
+ * Consumer resolvers — cherry-picks only the queries and mutations visible
+ * in the consumer schema. We must be precise because graphql-tools enforces
+ * resolver–schema parity (no extra resolvers allowed).
+ */
+export const consumerResolvers = mergeResolvers(
+  { Query: { entities: entityResolvers.Query.entities } },
+  { Query: { relations: relationResolvers.Query.relations } },
+  pathResolvers,
+  { Query: { schema: maintenanceResolvers.Query.schema } },
+  {
+    Query: { memoryStream: memoryStreamResolvers.Query.memoryStream },
+    Mutation: { appendMemory: memoryStreamResolvers.Mutation.appendMemory },
+  },
+  nodeResolver,
+);
+
+/**
+ * Admin resolvers — full set including entity/edge CRUD,
+ * registry management, and maintenance queries.
+ */
+export const adminResolvers = mergeResolvers(
   entityResolvers,
   relationResolvers,
   pathResolvers,
@@ -32,14 +64,8 @@ export const resolvers = mergeResolvers(
   registryResolvers,
   maintenanceResolvers,
   memoryStreamResolvers,
-  {
-    Node: {
-      __resolveType(obj: any) {
-        if ("content" in obj && "source" in obj) return "MemoryStreamEntry";
-        if ("name" in obj) return "Entity";
-        if ("sourceId" in obj || "source_id" in obj) return "Edge";
-        return null;
-      },
-    },
-  },
+  nodeResolver,
 );
+
+/** @deprecated Use `adminResolvers` or `consumerResolvers` explicitly. */
+export const resolvers = adminResolvers;

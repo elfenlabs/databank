@@ -1,0 +1,208 @@
+"""ISO-8601 date-time string (e.g. `2026-03-01T12:00:00Z`)."""
+scalar DateTime
+
+"""Arbitrary JSON object."""
+scalar JSON
+
+"""Relay Global Object Identification — any type with a unique `id`."""
+interface Node { id: ID! }
+
+enum Direction { OUTGOING INCOMING BOTH }
+enum TemporalMode { AT WITHIN OVERLAPS }
+
+"""
+Temporal filter for edge validity windows.
+AT requires `at`; WITHIN and OVERLAPS require `from` + `to`.
+"""
+input TemporalFilter {
+  mode: TemporalMode!
+  at: DateTime
+  from: DateTime
+  to: DateTime
+}
+
+"""Cosine similarity filter. Embeds the query and matches against entity embeddings."""
+input SemanticSearch {
+  query: String!
+  """Minimum cosine similarity (0.0–1.0)."""
+  threshold: Float!
+}
+
+"""Trait-scoped filter. Multiple filters are combined with AND."""
+input TraitFilter {
+  trait: String!
+  """Optional JSONB containment match on trait properties."""
+  properties: JSON
+}
+
+"""Knowledge entity with typed trait assignments."""
+type Entity implements Node {
+  id: ID!
+  name: String!
+  description: String
+  traits: [EntityTrait!]!
+  createdAt: DateTime!
+}
+
+"""A trait assigned to an entity, with its scoped properties."""
+type EntityTrait {
+  name: String!
+  properties: JSON!
+}
+
+"""Directed, typed relationship between two entities with optional temporal validity."""
+type Edge implements Node {
+  id: ID!
+  sourceId: ID!
+  targetId: ID!
+  relationType: String!
+  properties: JSON!
+  validFrom: DateTime
+  validTo: DateTime
+  createdAt: DateTime!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type EntityEdge {
+  node: Entity!
+  """Cosine similarity when `search` is active; null otherwise."""
+  score: Float
+  cursor: String!
+}
+
+type EntityConnection {
+  edges: [EntityEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+"""Traversal result: adjacent entity + full edge object."""
+type RelationEdge {
+  node: Entity!
+  """Full edge object (id, properties, temporal validity). At depth > 1, this is the last hop's edge."""
+  edge: Edge!
+  """Cosine similarity when `targetSearch` is active; null otherwise."""
+  score: Float
+  cursor: String!
+}
+
+type RelationConnection {
+  edges: [RelationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+"""A single step in a path between two entities."""
+type PathStep {
+  entity: Entity!
+  """The edge traversed to reach this entity. Null for the starting entity."""
+  edge: Edge
+}
+
+"""An observation in the memory stream (WAL). Embedded on write for vector search."""
+type MemoryStreamEntry implements Node {
+  id: ID!
+  content: String!
+  source: String!
+  priority: Int!
+  status: String!
+  createdAt: DateTime!
+  processedAt: DateTime
+}
+
+type MemoryStreamEdge {
+  node: MemoryStreamEntry!
+  """Cosine similarity when `search` is active; null otherwise."""
+  score: Float
+  cursor: String!
+}
+
+type MemoryStreamConnection {
+  edges: [MemoryStreamEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+"""Aggregate statistics and vocabulary of the databank."""
+type SchemaInfo {
+  traits: [String!]!
+  relationTypes: [String!]!
+  entityCount: Int!
+  edgeCount: Int!
+  memoryStreamCount: Int!
+}
+
+type Query {
+  """
+  Search and filter entities.
+  Trait filter is AND across filters; all filters are combined with AND.
+  Sorted by similarity when `search` is set, otherwise by creation time (desc).
+  """
+  entities(
+    search: SemanticSearch
+    """AND — all trait filters must match."""
+    traitFilter: [TraitFilter!]
+    first: Int!
+    after: String
+  ): EntityConnection!
+
+  """
+  Traverse the graph from an entity, returning adjacent entities and full edge objects.
+  At depth 1 (default), returns direct neighbors. At depth > 1, returns only terminal
+  entities reachable in exactly N hops. `relationType` and `temporal` filter every hop;
+  `targetTraits` and `targetSearch` filter only terminal entities.
+  Sorted by edge creation time (desc).
+  """
+  relations(
+    entityId: ID!
+    relationType: String
+    """OR — targets with any of these traits."""
+    targetTraits: [String!]
+    """Semantic filter on target entities. Populates `score` in results."""
+    targetSearch: SemanticSearch
+    direction: Direction = OUTGOING
+    temporal: TemporalFilter
+    """Traversal depth. 1 = direct neighbors (default). Max 5."""
+    depth: Int = 1
+    first: Int = 10
+    after: String
+  ): RelationConnection!
+
+  """
+  Find the shortest path between two entities.
+  Always traverses bidirectionally. Returns empty array if no path exists within maxDepth.
+  """
+  path(
+    fromId: ID!
+    toId: ID!
+    """Maximum hops to search. Default 5, max 5."""
+    maxDepth: Int = 5
+    """Optional: only traverse edges of this relation type."""
+    relationType: String
+  ): [PathStep!]!
+
+  """
+  Browse or search the memory stream.
+  Sorted by similarity when `search` is set, otherwise by creation time (desc).
+  """
+  memoryStream(
+    search: SemanticSearch
+    """Filter by status (e.g. PENDING, PROCESSED). Omit to show all."""
+    status: String
+    first: Int = 20
+    after: String
+  ): MemoryStreamConnection!
+
+  schema: SchemaInfo!
+}
+
+type Mutation {
+  """Append an observation to the memory stream. Embedded on write."""
+  appendMemory(content: String!, source: String!, priority: Int): MemoryStreamEntry!
+}

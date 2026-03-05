@@ -13,7 +13,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { typeDefs } from "./schema/typeDefs.ts";
+import { consumerTypeDefs } from "./schema/typeDefs.ts";
 
 const DATABANK_URL =
   process.env.DATABANK_URL ?? "http://localhost:4000/graphql";
@@ -27,11 +27,11 @@ const server = new McpServer({
 
 server.tool(
   "databank_schema",
-  "Returns the full GraphQL schema (SDL) of the Databank API. " +
+  "Returns the GraphQL schema (SDL) of the Databank consumer API. " +
     "Call this first to understand what queries and mutations are available, " +
     "their input types, and response shapes. Then use databank_query to execute them.",
   async () => ({
-    content: [{ type: "text", text: typeDefs }],
+    content: [{ type: "text", text: consumerTypeDefs }],
   }),
 );
 

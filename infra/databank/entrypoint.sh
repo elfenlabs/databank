@@ -44,7 +44,8 @@ for i in $(seq 1 30); do
   sleep 0.5
 done
 
-DATABANK_URL="http://localhost:4000/graphql" bun run db/seeds/load.ts || true
+# Seed uses admin-only mutations (registerTrait, registerRelation)
+DATABANK_URL="http://localhost:4000/graphql/admin" bun run db/seeds/load.ts || true
 kill $APP_PID 2>/dev/null || true
 wait $APP_PID 2>/dev/null || true
 

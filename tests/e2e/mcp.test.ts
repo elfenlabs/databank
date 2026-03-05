@@ -64,7 +64,12 @@ describe("MCP Server E2E", () => {
     expect(sdl).toContain("type Edge implements Node");
     expect(sdl).toContain("EntityConnection");
     expect(sdl).toContain("RelationConnection");
-    expect(sdl).toContain("RegistryConnection");
+    expect(sdl).toContain("MemoryStreamConnection");
+    // Consumer schema should NOT expose admin types
+    expect(sdl).not.toContain("RegistryConnection");
+    expect(sdl).not.toContain("TraitConnection");
+    expect(sdl).not.toContain("createEntity");
+    expect(sdl).not.toContain("deleteEntity");
   });
 
   test("databank_query executes a GraphQL query", async () => {
@@ -80,15 +85,14 @@ describe("MCP Server E2E", () => {
     expect(json.data.schema.edgeCount).toBeNumber();
   });
 
-  test("databank_query executes a mutation", async () => {
+  test("databank_query executes a mutation (appendMemory)", async () => {
     const result = await client.callTool({
       name: "databank_query",
       arguments: {
         query: `mutation {
-          createEntity(input: {
-            name: "MCP test entity"
-            traits: [{ name: "concept", properties: { name: "mcp-e2e" } }]
-          }) { id name traits { name properties } }
+          appendMemory(content: "MCP test observation", source: "mcp-e2e") {
+            id content source status
+          }
         }`,
       },
     });
@@ -96,29 +100,45 @@ describe("MCP Server E2E", () => {
     expect(result.isError).toBeFalsy();
     const content = result.content as Array<{ type: string; text: string }>;
     const json = JSON.parse(content[0]!.text);
-    expect(json.data.createEntity.name).toBe("MCP test entity");
-    expect(json.data.createEntity.traits[0].name).toBe("concept");
-    expect(json.data.createEntity.traits[0].properties).toEqual({ name: "mcp-e2e" });
+    expect(json.data.appendMemory.content).toBe("MCP test observation");
+    expect(json.data.appendMemory.source).toBe("mcp-e2e");
+    expect(json.data.appendMemory.status).toBe("PENDING");
+  });
+
+  test("databank_query rejects admin mutations via consumer endpoint", async () => {
+    const result = await client.callTool({
+      name: "databank_query",
+      arguments: {
+        query: `mutation {
+          createEntity(input: {
+            name: "Should fail"
+            traits: [{ name: "concept" }]
+          }) { id }
+        }`,
+      },
+    });
+
+    expect(result.isError).toBe(true);
   });
 
   test("databank_query supports variables", async () => {
     const result = await client.callTool({
       name: "databank_query",
       arguments: {
-        query: `query($filter: [TraitFilter!], $first: Int!) {
-          entities(traitFilter: $filter, first: $first) {
+        query: `query($first: Int!) {
+          memoryStream(first: $first) {
             totalCount
-            edges { node { id name } }
+            edges { node { id content } }
           }
         }`,
-        variables: { filter: [{ trait: "concept", properties: { name: "mcp-e2e" } }], first: 10 },
+        variables: { first: 10 },
       },
     });
 
     expect(result.isError).toBeFalsy();
     const content = result.content as Array<{ type: string; text: string }>;
     const json = JSON.parse(content[0]!.text);
-    expect(json.data.entities.totalCount).toBeGreaterThanOrEqual(1);
+    expect(json.data.memoryStream.totalCount).toBeGreaterThanOrEqual(1);
   });
 
   test("databank_query reports GraphQL errors", async () => {
