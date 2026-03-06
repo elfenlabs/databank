@@ -37,6 +37,7 @@ export const memoryStreamResolvers = {
       args: {
         search?: { query: string; threshold: number };
         status?: string;
+        minPriority?: number;
         first?: number;
         after?: string;
       },
@@ -50,6 +51,11 @@ export const memoryStreamResolvers = {
       // Optional status filter
       if (args.status) {
         query = query.where("status", "=", args.status);
+      }
+
+      // Optional priority threshold
+      if (args.minPriority != null) {
+        query = query.where("priority", ">=", args.minPriority);
       }
 
       // Semantic search

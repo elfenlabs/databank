@@ -41,7 +41,7 @@ const nodeResolver = {
  * resolver–schema parity (no extra resolvers allowed).
  */
 export const consumerResolvers = mergeResolvers(
-  { Query: { entities: entityResolvers.Query.entities } },
+  { Query: { entity: entityResolvers.Query.entity, entities: entityResolvers.Query.entities } },
   { Query: { relations: relationResolvers.Query.relations } },
   pathResolvers,
   { Query: { schema: maintenanceResolvers.Query.schema } },

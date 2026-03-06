@@ -78,10 +78,25 @@ async function validateTraits(
 
 export const entityResolvers = {
   Query: {
+    async entity(
+      _: unknown,
+      args: { id: string },
+      ctx: GraphContext,
+    ) {
+      const row = await ctx.db
+        .selectFrom("entities")
+        .selectAll()
+        .where("id", "=", args.id)
+        .executeTakeFirst();
+      if (!row) return null;
+      return resolveEntity(ctx.db, row);
+    },
+
     async entities(
       _: unknown,
       args: {
         search?: { query: string; threshold: number };
+        nameContains?: string;
         traitFilter?: Array<{ trait: string; properties?: Record<string, unknown> }>;
         first: number;
         after?: string;
@@ -92,6 +107,11 @@ export const entityResolvers = {
       const offset = args.after ? decodeCursor(args.after) + 1 : 0;
 
       let query = ctx.db.selectFrom("entities");
+
+      // Name substring filter (case-insensitive)
+      if (args.nameContains) {
+        query = query.where("name", "ilike", `%${args.nameContains}%`);
+      }
 
       // Trait filter: each filter is an AND (entity must match all)
       if (args.traitFilter && args.traitFilter.length > 0) {

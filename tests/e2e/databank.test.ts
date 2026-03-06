@@ -136,6 +136,28 @@ describe("Databank E2E", () => {
     expect(errors![0]!.message).toContain("unknown_field");
   });
 
+  // 3b. Single entity lookup by ID
+  test("entity(id) returns the entity", async () => {
+    const { data, errors } = await gql<{
+      entity: { id: string; name: string; traits: Array<{ name: string }> } | null;
+    }>(`query($id: ID!) { entity(id: $id) { id name traits { name } } }`, { id: entityIds.ts });
+
+    expect(errors).toBeUndefined();
+    expect(data!.entity).not.toBeNull();
+    expect(data!.entity!.name).toBe("TypeScript");
+    expect(data!.entity!.traits.length).toBe(2);
+  });
+
+  test("entity(id) returns null for non-existent ID", async () => {
+    const { data, errors } = await gql<{ entity: null }>(
+      `query($id: ID!) { entity(id: $id) { id } }`,
+      { id: "00000000-0000-0000-0000-000000000000" },
+    );
+
+    expect(errors).toBeUndefined();
+    expect(data!.entity).toBeNull();
+  });
+
   // 4. Filter by trait + properties
   test("entities filters by traitFilter", async () => {
     const { data, errors } = await gql<{
@@ -150,6 +172,17 @@ describe("Databank E2E", () => {
     expect(errors).toBeUndefined();
     expect(data!.entities.totalCount).toBe(1);
     expect(data!.entities.edges[0]!.node.id).toBe(entityIds.ts);
+  });
+
+  // 4b. Name substring filter (case-insensitive)
+  test("entities nameContains filters by name substring", async () => {
+    const { data, errors } = await gql<{
+      entities: { totalCount: number; edges: Array<{ node: { name: string } }> };
+    }>(`{ entities(nameContains: "type", first: 10) { totalCount edges { node { name } } } }`);
+
+    expect(errors).toBeUndefined();
+    expect(data!.entities.totalCount).toBe(1);
+    expect(data!.entities.edges[0]!.node.name).toBe("TypeScript");
   });
 
   // 5. Semantic search
@@ -494,14 +527,26 @@ describe("Databank E2E", () => {
     expect(data!.memoryStream.totalCount).toBe(0); // nothing processed yet
   });
 
-  // MS-5. Schema reflects pending count
-  test("schema includes memoryStreamCount", async () => {
+  // MS-4b. Filter by priority
+  test("memoryStream minPriority filters low-priority entries", async () => {
     const { data, errors } = await gql<{
-      schema: { memoryStreamCount: number };
-    }>(`{ schema { memoryStreamCount } }`);
+      memoryStream: { totalCount: number; edges: Array<{ node: { priority: number } }> };
+    }>(`{ memoryStream(minPriority: 5) { totalCount edges { node { priority } } } }`);
 
     expect(errors).toBeUndefined();
-    expect(data!.schema.memoryStreamCount).toBe(3);
+    expect(data!.memoryStream.totalCount).toBe(1);
+    expect(data!.memoryStream.edges[0]!.node.priority).toBe(5);
+  });
+
+  // MS-5. Schema reflects counts (memoryStreamCount removed from consumer)
+  test("schema includes entity and edge counts", async () => {
+    const { data, errors } = await gql<{
+      schema: { entityCount: number; edgeCount: number };
+    }>(`{ schema { entityCount edgeCount } }`);
+
+    expect(errors).toBeUndefined();
+    expect(data!.schema.entityCount).toBe(3); // TS + Rust + PG
+    expect(data!.schema.edgeCount).toBe(0); // none yet
   });
 
   // MS-6. Update status (mark first two as PROCESSED)
@@ -516,10 +561,10 @@ describe("Databank E2E", () => {
     expect(data!.updateMemoryStatus).toBe(2);
 
     // Verify: only 1 pending remains
-    const { data: schemaData } = await gql<{
-      schema: { memoryStreamCount: number };
-    }>(`{ schema { memoryStreamCount } }`);
-    expect(schemaData!.schema.memoryStreamCount).toBe(1);
+    const { data: pending } = await gql<{
+      memoryStream: { totalCount: number };
+    }>(`{ memoryStream(status: "PENDING") { totalCount } }`);
+    expect(pending!.memoryStream.totalCount).toBe(1);
   });
 
   // MS-7. Invalid status rejected

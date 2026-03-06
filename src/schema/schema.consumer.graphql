@@ -135,10 +135,12 @@ type SchemaInfo {
   relationTypes: [String!]!
   entityCount: Int!
   edgeCount: Int!
-  memoryStreamCount: Int!
 }
 
 type Query {
+  """Look up a single entity by ID. Returns null if not found."""
+  entity(id: ID!): Entity
+
   """
   Search and filter entities.
   Trait filter is AND across filters; all filters are combined with AND.
@@ -146,6 +148,8 @@ type Query {
   """
   entities(
     search: SemanticSearch
+    """Case-insensitive substring match on entity name."""
+    nameContains: String
     """AND — all trait filters must match."""
     traitFilter: [TraitFilter!]
     first: Int!
@@ -195,6 +199,8 @@ type Query {
     search: SemanticSearch
     """Filter by status (e.g. PENDING, PROCESSED). Omit to show all."""
     status: String
+    """Minimum priority threshold. Only entries with priority >= this value are returned."""
+    minPriority: Int
     first: Int = 20
     after: String
   ): MemoryStreamConnection!
