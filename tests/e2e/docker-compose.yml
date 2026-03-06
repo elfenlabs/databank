@@ -7,7 +7,7 @@ services:
       context: ../..
       dockerfile: infra/thesauros/Dockerfile
     environment:
-      EMBED_URL: http://embedder:8100
+      EMBEDDER_URL: http://embedder:8100/embed
       PORT: "4000"
     ports:
       - "14000:4000"

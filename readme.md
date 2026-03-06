@@ -26,7 +26,7 @@ docker run -d --name embedder -p 8100:8100 \
 
 # 2. Start a thesauros instance (point it at the embedder)
 docker run -d --name thesauros-1 -p 4000:4000 \
-  -e EMBED_URL=http://embedder:8100 \
+  -e EMBEDDER_URL=http://embedder:8100/embed \
   thesauros
 ```
 
@@ -43,7 +43,7 @@ Two GraphQL endpoints are exposed:
 ┌─────────────────────────────────────────────────────┐
 │                  Embedder (shared)                   │
 │        Python · FastAPI · sentence-transformers      │
-│              POST /embed { text } → vector           │
+│           POST /embed { text | texts } → vector(s)    │
 └──────────────────────┬──────────────────────────────┘
                        │
           ┌────────────┼────────────┐
@@ -236,7 +236,7 @@ Add to your MCP configuration (e.g. `claude_desktop_config.json`):
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DATABASE_URL` | *(set by container)* | PostgreSQL connection string |
-| `EMBED_URL` | `http://localhost:8100` | URL of the embedding sidecar |
+| `EMBEDDER_URL` | `http://localhost:8100/embed` | Full URL of the embedding endpoint (POST, accepts `{ text }` or `{ texts }`) |
 | `PORT` | `4000` | Server port (serves both endpoints) |
 | `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | HuggingFace model for the embedder |
 | `THESAUROS_URL` | `http://localhost:4000/graphql` | Consumer endpoint URL (used by MCP server) |

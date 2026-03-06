@@ -1,6 +1,6 @@
-const EMBED_URL = process.env.EMBED_URL;
-if (!EMBED_URL) {
-  throw new Error("EMBED_URL environment variable is required");
+const EMBEDDER_URL = process.env.EMBEDDER_URL;
+if (!EMBEDDER_URL) {
+  throw new Error("EMBEDDER_URL environment variable is required");
 }
 
 /**
@@ -8,7 +8,7 @@ if (!EMBED_URL) {
  * Returns a vector (number[]) matching the embedder model's dimension.
  */
 export async function embed(text: string): Promise<number[]> {
-  const res = await fetch(`${EMBED_URL}/embed`, {
+  const res = await fetch(EMBEDDER_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
@@ -29,7 +29,7 @@ export async function embed(text: string): Promise<number[]> {
 export async function embedBatch(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
 
-  const res = await fetch(`${EMBED_URL}/embed`, {
+  const res = await fetch(EMBEDDER_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ texts }),
