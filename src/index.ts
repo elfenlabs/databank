@@ -36,6 +36,6 @@ const server = createServer((req, res) => {
 });
 
 server.listen(port, () => {
-  console.log(`🏦 Databank running at http://localhost:${port}/graphql`);
+  console.log(`🏛️ Thesauros running at http://localhost:${port}/graphql`);
   console.log(`🔑 Admin endpoint at http://localhost:${port}/graphql/admin`);
 });

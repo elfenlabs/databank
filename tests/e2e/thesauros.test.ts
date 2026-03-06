@@ -26,7 +26,7 @@ let edgeId2 = "";
 // Tests — run sequentially, each builds on previous state
 // ---------------------------------------------------------------------------
 
-describe("Databank E2E", () => {
+describe("Thesauros E2E", () => {
   // 1. Schema query — fresh DB (seeded traits + relations, no entities/edges)
   test("schema returns seeded state", async () => {
     const { data, errors } = await gql<{
@@ -546,7 +546,7 @@ describe("Databank E2E", () => {
 
     expect(errors).toBeUndefined();
     expect(data!.schema.entityCount).toBe(3); // TS + Rust + PG
-    expect(data!.schema.edgeCount).toBe(0); // none yet
+    expect(data!.schema.edgeCount).toBe(2); // runs_on + depends_on
   });
 
   // MS-6. Update status (mark first two as PROCESSED)

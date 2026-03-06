@@ -2,10 +2,10 @@
 # Usage: docker compose -f tests/e2e/docker-compose.yml up -d --wait
 
 services:
-  databank:
+  thesauros:
     build:
       context: ../..
-      dockerfile: infra/databank/Dockerfile
+      dockerfile: infra/thesauros/Dockerfile
     environment:
       EMBED_URL: http://embedder:8100
       PORT: "4000"

@@ -1,7 +1,7 @@
 /**
  * E2E test lifecycle — manages Docker infra.
  *
- * The databank container handles PG, migrations, and the GraphQL server
+ * The thesauros container handles PG, migrations, and the GraphQL server
  * internally.  Setup just needs to bring compose up and wait for the
  * health-checked endpoint.
  */

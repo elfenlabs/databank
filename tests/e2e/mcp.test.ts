@@ -5,7 +5,7 @@ import { setup, teardown } from "./setup.ts";
 import path from "node:path";
 
 // ---------------------------------------------------------------------------
-// Lifecycle — reuse the same Docker infra as databank.test.ts
+// Lifecycle — reuse the same Docker infra as thesauros.test.ts
 // ---------------------------------------------------------------------------
 
 const MCP_ENTRY = path.resolve(import.meta.dir, "../../src/mcp.ts");
@@ -21,7 +21,7 @@ beforeAll(async () => {
     args: ["run", MCP_ENTRY],
     env: {
       ...process.env,
-      DATABANK_URL: "http://localhost:14000/graphql",
+      THESAUROS_URL: "http://localhost:14000/graphql",
     } as Record<string, string>,
     stderr: "ignore",
   });
@@ -44,13 +44,13 @@ describe("MCP Server E2E", () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
 
-    expect(names).toContain("databank_schema");
-    expect(names).toContain("databank_query");
+    expect(names).toContain("thesauros_schema");
+    expect(names).toContain("thesauros_query");
     expect(tools.length).toBe(2);
   });
 
-  test("databank_schema returns the GraphQL SDL", async () => {
-    const result = await client.callTool({ name: "databank_schema" });
+  test("thesauros_schema returns the GraphQL SDL", async () => {
+    const result = await client.callTool({ name: "thesauros_schema" });
 
     expect(result.isError).toBeFalsy();
     const content = result.content as Array<{ type: string; text: string }>;
@@ -72,9 +72,9 @@ describe("MCP Server E2E", () => {
     expect(sdl).not.toContain("deleteEntity");
   });
 
-  test("databank_query executes a GraphQL query", async () => {
+  test("thesauros_query executes a GraphQL query", async () => {
     const result = await client.callTool({
-      name: "databank_query",
+      name: "thesauros_query",
       arguments: { query: "{ schema { entityCount edgeCount } }" },
     });
 
@@ -85,9 +85,9 @@ describe("MCP Server E2E", () => {
     expect(json.data.schema.edgeCount).toBeNumber();
   });
 
-  test("databank_query executes a mutation (appendMemory)", async () => {
+  test("thesauros_query executes a mutation (appendMemory)", async () => {
     const result = await client.callTool({
-      name: "databank_query",
+      name: "thesauros_query",
       arguments: {
         query: `mutation {
           appendMemory(content: "MCP test observation", source: "mcp-e2e") {
@@ -105,9 +105,9 @@ describe("MCP Server E2E", () => {
     expect(json.data.appendMemory.status).toBe("PENDING");
   });
 
-  test("databank_query rejects admin mutations via consumer endpoint", async () => {
+  test("thesauros_query rejects admin mutations via consumer endpoint", async () => {
     const result = await client.callTool({
-      name: "databank_query",
+      name: "thesauros_query",
       arguments: {
         query: `mutation {
           createEntity(input: {
@@ -121,9 +121,9 @@ describe("MCP Server E2E", () => {
     expect(result.isError).toBe(true);
   });
 
-  test("databank_query supports variables", async () => {
+  test("thesauros_query supports variables", async () => {
     const result = await client.callTool({
-      name: "databank_query",
+      name: "thesauros_query",
       arguments: {
         query: `query($first: Int!) {
           memoryStream(first: $first) {
@@ -141,9 +141,9 @@ describe("MCP Server E2E", () => {
     expect(json.data.memoryStream.totalCount).toBeGreaterThanOrEqual(1);
   });
 
-  test("databank_query reports GraphQL errors", async () => {
+  test("thesauros_query reports GraphQL errors", async () => {
     const result = await client.callTool({
-      name: "databank_query",
+      name: "thesauros_query",
       arguments: { query: "{ nonExistentField }" },
     });
 

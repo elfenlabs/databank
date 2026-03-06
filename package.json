@@ -1,5 +1,5 @@
 {
-  "name": "databank",
+  "name": "@elfenlabs/thesauros",
   "module": "src/index.ts",
   "type": "module",
   "private": true,

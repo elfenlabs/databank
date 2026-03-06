@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-DATABASE_URL="postgres://databank:databank@localhost:5432/databank?sslmode=disable"
+DATABASE_URL="postgres://thesauros:thesauros@localhost:5432/thesauros?sslmode=disable"
 export DATABASE_URL
 
 # 1. Start PostgreSQL via the official entrypoint.
@@ -17,15 +17,15 @@ PG_PID=$!
 #    pg_isready can return true during Phase 1, so we also verify
 #    the actual database is connectable.
 for i in $(seq 1 60); do
-  if pg_isready -U databank -d databank -q 2>/dev/null && \
-     psql -U databank -d databank -c '\q' 2>/dev/null; then
+  if pg_isready -U thesauros -d thesauros -q 2>/dev/null && \
+     psql -U thesauros -d thesauros -c '\q' 2>/dev/null; then
     break
   fi
   sleep 0.5
 done
 
 # Verify PG is actually up
-if ! psql -U databank -d databank -c '\q' 2>/dev/null; then
+if ! psql -U thesauros -d thesauros -c '\q' 2>/dev/null; then
   echo "ERROR: PostgreSQL did not become ready" >&2
   exit 1
 fi
@@ -45,9 +45,9 @@ for i in $(seq 1 30); do
 done
 
 # Seed uses admin-only mutations (registerTrait, registerRelation)
-DATABANK_URL="http://localhost:4000/graphql/admin" bun run db/seeds/load.ts || true
+THESAUROS_URL="http://localhost:4000/graphql/admin" bun run db/seeds/load.ts || true
 kill $APP_PID 2>/dev/null || true
 wait $APP_PID 2>/dev/null || true
 
-# 5. Start the Databank app (replaces this shell, becomes PID 1 equivalent)
+# 5. Start the Thesauros app (replaces this shell, becomes PID 1 equivalent)
 exec bun run src/index.ts

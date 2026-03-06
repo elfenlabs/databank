@@ -1,33 +1,33 @@
-# 🏦 Databank
+# 🏛️ Thesauros
 
 A headless, API-first **GraphRAG backend** — combining relational graph topology with vector-based semantic search in a single PostgreSQL instance.
 
-Databank is intentionally "dumb": it stores entities, edges, traits, and embeddings, and exposes them via a **dual-endpoint GraphQL API**. It hosts no LLMs for reasoning or generation. Multi-hop graph traversals and semantic search are first-class features, while complex reasoning is delegated to the consuming agent through **round-trip exploration**.
+Thesauros is intentionally "dumb": it stores entities, edges, traits, and embeddings, and exposes them via a **dual-endpoint GraphQL API**. It hosts no LLMs for reasoning or generation. Multi-hop graph traversals and semantic search are first-class features, while complex reasoning is delegated to the consuming agent through **round-trip exploration**.
 
 ## Quickstart
 
-Databank ships as two Docker images. Build them from the repo root:
+Thesauros ships as two Docker images. Build them from the repo root:
 
 ```bash
 # Build the embedding sidecar (shared, run once)
-docker build -t databank-embedder -f infra/embedder/Dockerfile infra/embedder
+docker build -t thesauros-embedder -f infra/embedder/Dockerfile infra/embedder
 
-# Build the databank container (one per agent/tenant)
-docker build -t databank -f infra/databank/Dockerfile .
+# Build the thesauros container (one per agent/tenant)
+docker build -t thesauros -f infra/thesauros/Dockerfile .
 ```
 
-Run the embedder first, then spin up as many databank instances as needed:
+Run the embedder first, then spin up as many thesauros instances as needed:
 
 ```bash
 # 1. Start the shared embedder
 docker run -d --name embedder -p 8100:8100 \
   -e EMBED_MODEL=BAAI/bge-small-en-v1.5 \
-  databank-embedder
+  thesauros-embedder
 
-# 2. Start a databank instance (point it at the embedder)
-docker run -d --name databank-1 -p 4000:4000 \
+# 2. Start a thesauros instance (point it at the embedder)
+docker run -d --name thesauros-1 -p 4000:4000 \
   -e EMBED_URL=http://embedder:8100 \
-  databank
+  thesauros
 ```
 
 Two GraphQL endpoints are exposed:
@@ -48,24 +48,24 @@ Two GraphQL endpoints are exposed:
                        │
           ┌────────────┼────────────┐
           ▼            ▼            ▼
-   ┌────────────┐┌────────────┐┌────────────┐
-   │ Databank 1 ││ Databank 2 ││ Databank N │
-   │            ││            ││            │
-   │ PostgreSQL ││ PostgreSQL ││ PostgreSQL │
-   │ + pgvector ││ + pgvector ││ + pgvector │
-   │ + Bun app  ││ + Bun app  ││ + Bun app  │
-   │            ││            ││            │
-   │ :4000      ││ :4001      ││ :400x      │
-   └────────────┘└────────────┘└────────────┘
+   ┌─────────────┐┌─────────────┐┌─────────────┐
+   │ Thesauros 1 ││ Thesauros 2 ││ Thesauros N │
+   │             ││             ││             │
+   │ PostgreSQL  ││ PostgreSQL  ││ PostgreSQL  │
+   │ + pgvector  ││ + pgvector  ││ + pgvector  │
+   │ + Bun app   ││ + Bun app   ││ + Bun app   │
+   │             ││             ││             │
+   │ :4000       ││ :4001       ││ :400x       │
+   └─────────────┘└─────────────┘└─────────────┘
 ```
 
-Each **Databank container** is self-contained — it bundles PostgreSQL (with pgvector), runs migrations on startup via [dbmate](https://github.com/amacneil/dbmate), and seeds a starter vocabulary of traits and relations. Isolation between tenants/agents is achieved through **separate containers**, not multi-tenancy.
+Each **Thesauros container** is self-contained — it bundles PostgreSQL (with pgvector), runs migrations on startup via [dbmate](https://github.com/amacneil/dbmate), and seeds a starter vocabulary of traits and relations. Isolation between tenants/agents is achieved through **separate containers**, not multi-tenancy.
 
-The **Embedder** is a stateless Python sidecar that converts text to vectors using `sentence-transformers` (default model: `BAAI/bge-small-en-v1.5`, 384 dimensions). A single embedder instance is shared across all databank containers.
+The **Embedder** is a stateless Python sidecar that converts text to vectors using `sentence-transformers` (default model: `BAAI/bge-small-en-v1.5`, 384 dimensions). A single embedder instance is shared across all thesauros containers.
 
 ## Data Model
 
-Databank uses a **trait-based** knowledge graph:
+Thesauros uses a **trait-based** knowledge graph:
 
 - **Entities** — knowledge units with a `name` and optional `description` (combined and auto-embedded for semantic search)
 - **Traits** — typed classifications assigned to entities (e.g. `person`, `language`, `concept`). Each trait defines a **property schema** — a set of allowed keys. Property values are scoped to the trait and validated on write.
@@ -192,14 +192,14 @@ The admin endpoint includes everything in the consumer API **plus** full CRUD an
 
 ## MCP
 
-Databank ships with an [MCP](https://modelcontextprotocol.io) server that lets any MCP-compatible agent (Claude Desktop, Cursor, Windsurf, etc.) interact with the knowledge graph. It exposes two tools:
+Thesauros ships with an [MCP](https://modelcontextprotocol.io) server that lets any MCP-compatible agent (Claude Desktop, Cursor, Windsurf, etc.) interact with the knowledge graph. It exposes two tools:
 
 | Tool | Description |
 | --- | --- |
-| `databank_schema` | Returns the consumer GraphQL SDL so the agent learns the API |
-| `databank_query` | Executes a GraphQL query/mutation against the consumer endpoint |
+| `thesauros_schema` | Returns the consumer GraphQL SDL so the agent learns the API |
+| `thesauros_query` | Executes a GraphQL query/mutation against the consumer endpoint |
 
-The MCP server is a thin stdio adapter — it forwards GraphQL operations to a running Databank instance via HTTP.
+The MCP server is a thin stdio adapter — it forwards GraphQL operations to a running Thesauros instance via HTTP.
 
 ### Configuration
 
@@ -208,12 +208,12 @@ Add to your MCP configuration (e.g. `claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
-    "databank": {
+    "thesauros": {
       "command": "bun",
       "args": ["run", "mcp"],
-      "cwd": "/path/to/databank",
+      "cwd": "/path/to/thesauros",
       "env": {
-        "DATABANK_URL": "http://localhost:4000/graphql"
+        "THESAUROS_URL": "http://localhost:4000/graphql"
       }
     }
   }
@@ -239,7 +239,7 @@ Add to your MCP configuration (e.g. `claude_desktop_config.json`):
 | `EMBED_URL` | `http://localhost:8100` | URL of the embedding sidecar |
 | `PORT` | `4000` | Server port (serves both endpoints) |
 | `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | HuggingFace model for the embedder |
-| `DATABANK_URL` | `http://localhost:4000/graphql` | Consumer endpoint URL (used by MCP server) |
+| `THESAUROS_URL` | `http://localhost:4000/graphql` | Consumer endpoint URL (used by MCP server) |
 
 ## License
 

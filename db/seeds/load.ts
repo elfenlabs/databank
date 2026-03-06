@@ -1,14 +1,14 @@
 /**
  * Seed loader — registers starter traits and relations via GraphQL mutations.
- * Idempotent: safe to re-run on an already-seeded databank.
+ * Idempotent: safe to re-run on an already-seeded thesauros.
  *
  * Usage: bun run db/seeds/load.ts
- * Env:   DATABANK_URL (default: http://localhost:4000/graphql)
+ * Env:   THESAUROS_URL (default: http://localhost:4000/graphql)
  */
 
 import seeds from "./starter.json";
 
-const url = process.env.DATABANK_URL ?? "http://localhost:4000/graphql";
+const url = process.env.THESAUROS_URL ?? "http://localhost:4000/graphql";
 
 async function gql(query: string, variables?: Record<string, unknown>) {
   const res = await fetch(url, {
@@ -21,7 +21,7 @@ async function gql(query: string, variables?: Record<string, unknown>) {
 }
 
 async function main() {
-  console.log(`🌱 Seeding databank at ${url}`);
+  console.log(`🌱 Seeding thesauros at ${url}`);
 
   // Register traits
   let traitsRegistered = 0;

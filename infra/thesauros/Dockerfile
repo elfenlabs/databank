@@ -26,17 +26,17 @@ COPY db/migrations/ db/migrations/
 COPY db/seeds/ db/seeds/
 
 # Bake the pgvector init script
-COPY infra/databank/init.sql /docker-entrypoint-initdb.d/init.sql
+COPY infra/thesauros/init.sql /docker-entrypoint-initdb.d/init.sql
 
 # Entrypoint
-COPY infra/databank/entrypoint.sh /app/entrypoint.sh
+COPY infra/thesauros/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # PG env (hardcoded — internal use only)
-ENV POSTGRES_DB=databank \
-    POSTGRES_USER=databank \
-    POSTGRES_PASSWORD=databank \
-    DATABASE_URL=postgres://databank:databank@localhost:5432/databank?sslmode=disable
+ENV POSTGRES_DB=thesauros \
+    POSTGRES_USER=thesauros \
+    POSTGRES_PASSWORD=thesauros \
+    DATABASE_URL=postgres://thesauros:thesauros@localhost:5432/thesauros?sslmode=disable
 
 EXPOSE 4000
 
