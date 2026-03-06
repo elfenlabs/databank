@@ -2,7 +2,7 @@
 
 A headless, API-first **GraphRAG backend** — combining relational graph topology with vector-based semantic search in a single PostgreSQL instance.
 
-Databank is intentionally "dumb": it stores entities, edges, traits, and embeddings, and exposes them via a flat **GraphQL API**. It hosts no LLMs for reasoning or generation. Multi-hop graph traversals and semantic search are first-class features, while complex reasoning is delegated to the consuming agent through **round-trip exploration**.
+Databank is intentionally "dumb": it stores entities, edges, traits, and embeddings, and exposes them via a **dual-endpoint GraphQL API**. It hosts no LLMs for reasoning or generation. Multi-hop graph traversals and semantic search are first-class features, while complex reasoning is delegated to the consuming agent through **round-trip exploration**.
 
 ## Quickstart
 
@@ -30,7 +30,12 @@ docker run -d --name databank-1 -p 4000:4000 \
   databank
 ```
 
-The GraphQL endpoint is available at `http://localhost:4000/graphql`.
+Two GraphQL endpoints are exposed:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `/graphql` | **Consumer API** — read-heavy queries + memory stream append |
+| `/graphql/admin` | **Admin API** — full CRUD, registry management, maintenance |
 
 ## Architecture
 
@@ -60,68 +65,130 @@ The **Embedder** is a stateless Python sidecar that converts text to vectors usi
 
 ## Data Model
 
-Databank uses a **trait-based** knowledge graph model:
+Databank uses a **trait-based** knowledge graph:
 
-- **Entities** — knowledge units with free-text content (auto-embedded for semantic search)
-- **Traits** — typed classifications assigned to entities (e.g. `person`, `organization`, `concept`). Each trait defines a **property schema** — a set of allowed keys. Property values are scoped to the trait and validated on write.
-- **Edges** — directed, typed relationships between entities with optional temporal validity windows
+- **Entities** — knowledge units with a `name` and optional `description` (combined and auto-embedded for semantic search)
+- **Traits** — typed classifications assigned to entities (e.g. `person`, `language`, `concept`). Each trait defines a **property schema** — a set of allowed keys. Property values are scoped to the trait and validated on write.
+- **Edges** — directed, typed relationships between entities with optional temporal validity windows (`valid_from`, `valid_to`)
 - **Relations** — a registry of edge types with semantic search (e.g. `owns`, `depends_on`)
+- **Memory Stream** — a write-ahead log for agent observations, embedded on write for semantic search. Entries have a priority and status lifecycle (`PENDING → PROCESSED | DISCARDED`).
 
 ```
-Entity: "Alice is a senior engineer at Acme"
+Entity: "Alice"
+  description: "A senior engineer at Acme"
   Trait: person     → { name: "Alice", role: "Senior Engineer" }
   Trait: employee   → { company: "Acme" }
+
+Memory Stream Entry:
+  content: "TypeScript version is now 5.8"
+  source: "build-agent"
+  priority: 5
+  status: PENDING
 ```
 
-## API
+> **Memory stream as source of truth:** Consumer agents should treat the memory stream as more recent than the knowledge graph. If TypeScript is version 5.7 in the graph but 5.8 in the memory stream, the memory stream is correct. A Librarian agent processes pending entries and updates the graph asynchronously.
 
-Databank exposes a flat GraphQL API at `/graphql`. No nested traversals — the consuming agent chains flat queries with reasoning in between.
+## Consumer API (`/graphql`)
 
-| Operation | Description |
+The consumer endpoint is designed for **agent consumption** — read-heavy queries with a single write mutation (`appendMemory`). The agent explores the graph through flat, composable queries.
+
+### Query Loop
+
+```
+1. schema            → discover vocabulary (traits, relation types, counts)
+2. entity(id)        → look up a known entity by ID
+3. entities(...)     → search by name, semantics, or trait filters
+4. relations(...)    → traverse the graph from an entity (depth 1–5)
+5. path(from, to)    → shortest path between two entities
+6. memoryStream(...) → search recent observations
+7. appendMemory(...) → log a new observation
+```
+
+### Queries
+
+| Query | Description |
 | --- | --- |
-| `entities` | Search/filter entities by semantic similarity, trait, or trait-scoped properties |
-| `relations` | Traverse the graph (depth 1–5), with relation/trait/temporal/semantic filters |
-| `path` | Shortest path between two entities (bidirectional BFS, max 5 hops) |
-| `traits` | Browse or semantically search the trait registry |
-| `relationKeys` | Browse or semantically search the relation registry |
-| `orphans` / `similarPairs` / `schema` | Maintenance & diagnostics |
+| `entity(id)` | Look up a single entity by ID. Returns null if not found. |
+| `entities(search, nameContains, traitFilter, first, after)` | Search entities by semantic similarity, name substring (case-insensitive), and/or trait filters (AND logic). |
+| `relations(entityId, relationType, targetTraits, targetSearch, direction, temporal, depth, first, after)` | Traverse the graph from an entity. Supports multi-hop (depth 1–5), directional filtering, temporal windows, and semantic search on targets. |
+| `path(fromId, toId, maxDepth, relationType)` | Shortest path between two entities via bidirectional BFS (max 5 hops). |
+| `memoryStream(search, status, minPriority, first, after)` | Browse or search the memory stream. Filter by status, minimum priority, or semantic similarity. |
+| `schema` | Aggregate stats: entity count, edge count, trait names, relation types. |
+
+### Mutations
+
+| Mutation | Description |
+| --- | --- |
+| `appendMemory(content, source, priority)` | Append an observation to the memory stream. Embedded on write. |
+
+### Key Features
+
+- **Semantic search** — on entity content and memory stream entries via pgvector cosine similarity
+- **Name lookup** — case-insensitive substring filter (`nameContains`) for exact entity discovery
+- **Multi-hop traversal** — `relations` supports depth 1–5 with per-hop relation/temporal filtering
+- **Shortest path** — `path` finds the shortest route between any two entities
+- **Temporal filters** — `AT`, `WITHIN`, `OVERLAPS` modes for time-aware edge queries
+- **Relay cursor pagination** — standard `first` / `after` on all list queries
+- **Alias batching** — multiple independent queries in one GraphQL request
+
+### Example: Agent Exploration Flow
+
+```graphql
+# 1. Discover vocabulary
+{ schema { traits relationTypes entityCount } }
+
+# 2. Find an entity by name
+{ entities(nameContains: "TypeScript", first: 1) {
+    edges { node { id name traits { name properties } } }
+} }
+
+# 3. Traverse its relationships
+{ relations(entityId: "abc-123", depth: 2, first: 10) {
+    edges { edge { relationType } node { id name } }
+} }
+
+# 4. Find path between two entities
+{ path(fromId: "abc-123", toId: "def-456") {
+    entity { name } edge { relationType }
+} }
+
+# 5. Check recent observations
+{ memoryStream(search: { query: "build error", threshold: 0.6 }, first: 5) {
+    edges { node { content source priority status } }
+} }
+
+# 6. Log an observation
+mutation { appendMemory(
+  content: "TypeScript 5.8 released with new strictness flags"
+  source: "news-agent"
+  priority: 3
+) { id } }
+```
+
+## Admin API (`/graphql/admin`)
+
+The admin endpoint includes everything in the consumer API **plus** full CRUD and maintenance operations.
+
+### Additional Queries
+
+| Query | Description |
+| --- | --- |
+| `traits(match, value, threshold, first, after)` | Browse or semantically search the trait registry |
+| `relationKeys(match, value, threshold, first, after)` | Browse or semantically search the relation registry |
+| `orphans(first, after)` | Entities with no edges |
+| `similarPairs(threshold)` | Entity pairs with high similarity but no direct edge |
+
+### Additional Mutations
+
+| Mutation | Description |
+| --- | --- |
 | `createEntity` / `updateEntity` / `deleteEntity` | Entity CRUD with trait validation |
 | `createEdge` / `deleteEdge` | Edge CRUD (relation auto-registration) |
 | `registerTrait` / `mergeTraits` / `deleteTrait` | Manage the trait registry |
 | `addTraitProperty` / `removeTraitProperty` | Manage trait property schemas |
 | `registerRelation` / `mergeRelations` / `deleteRelation` | Manage the relation registry |
-
-Key features:
-- **Trait-scoped properties** — properties are validated against the trait's schema on write; unknown keys are rejected
-- **Semantic search** — on entity content, relation types, and trait names via pgvector cosine similarity
-- **Multi-hop traversal** — `relations` query supports depth 1–5 with per-hop filtering
-- **Shortest path** — `path` query finds the shortest route between any two entities
-- **Temporal filters** — `AT`, `WITHIN`, `OVERLAPS` modes for time-aware edge queries
-- **Relay cursor pagination** — standard `first` / `after` pagination
-- **Alias batching** — multiple independent queries in one GraphQL request
-
-See [`project.md`](project.md) for the full PRD, schema definitions, and example query flows.
-
-## Stack
-
-| Component | Technology |
-| --- | --- |
-| Runtime | [Bun](https://bun.sh) |
-| API | [GraphQL Yoga](https://the-guild.dev/graphql/yoga-server) |
-| Database | PostgreSQL 17 + [pgvector](https://github.com/pgvector/pgvector) |
-| ORM | [Kysely](https://kysely.dev) |
-| Migrations | [dbmate](https://github.com/amacneil/dbmate) |
-| Embedder | Python · [FastAPI](https://fastapi.tiangolo.com) · [sentence-transformers](https://sbert.net) |
-
-## Environment
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `DATABASE_URL` | *(set by container)* | PostgreSQL connection string |
-| `EMBED_URL` | `http://localhost:8100` | URL of the embedding sidecar |
-| `PORT` | `4000` | GraphQL server port |
-| `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | HuggingFace model for the embedder |
-| `DATABANK_URL` | `http://localhost:4000/graphql` | GraphQL endpoint (used by MCP server) |
+| `updateMemoryStatus` | Mark memory entries as PROCESSED or DISCARDED |
+| `truncateMemoryStream` | Remove old non-PENDING entries |
 
 ## MCP
 
@@ -129,20 +196,12 @@ Databank ships with an [MCP](https://modelcontextprotocol.io) server that lets a
 
 | Tool | Description |
 | --- | --- |
-| `databank_schema` | Returns the full GraphQL SDL so the agent learns the API |
-| `databank_query` | Executes a raw GraphQL query/mutation against Databank |
+| `databank_schema` | Returns the consumer GraphQL SDL so the agent learns the API |
+| `databank_query` | Executes a GraphQL query/mutation against the consumer endpoint |
 
 The MCP server is a thin stdio adapter — it forwards GraphQL operations to a running Databank instance via HTTP.
 
-```bash
-# Start Databank first
-bun run dev
-
-# In another terminal, test the MCP server
-bun run mcp
-```
-
-### Claude Desktop / Cursor config
+### Configuration
 
 Add to your MCP configuration (e.g. `claude_desktop_config.json`):
 
@@ -160,6 +219,27 @@ Add to your MCP configuration (e.g. `claude_desktop_config.json`):
   }
 }
 ```
+
+## Stack
+
+| Component | Technology |
+| --- | --- |
+| Runtime | [Bun](https://bun.sh) |
+| API | [GraphQL Yoga](https://the-guild.dev/graphql/yoga-server) |
+| Database | PostgreSQL 17 + [pgvector](https://github.com/pgvector/pgvector) |
+| Query Builder | [Kysely](https://kysely.dev) |
+| Migrations | [dbmate](https://github.com/amacneil/dbmate) |
+| Embedder | Python · [FastAPI](https://fastapi.tiangolo.com) · [sentence-transformers](https://sbert.net) |
+
+## Environment
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | *(set by container)* | PostgreSQL connection string |
+| `EMBED_URL` | `http://localhost:8100` | URL of the embedding sidecar |
+| `PORT` | `4000` | Server port (serves both endpoints) |
+| `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | HuggingFace model for the embedder |
+| `DATABANK_URL` | `http://localhost:4000/graphql` | Consumer endpoint URL (used by MCP server) |
 
 ## License
 
